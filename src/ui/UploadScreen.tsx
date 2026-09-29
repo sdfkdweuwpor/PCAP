@@ -193,7 +193,7 @@ export function UploadScreen() {
                     <td className="px-3 py-1.5">
                       <Kbd>{i + 1}</Kbd>
                     </td>
-                    <td className="px-2 py-1.5 font-semibold">{s.fileName}</td>
+                    <td className="whitespace-nowrap px-2 py-1.5 font-semibold">{s.fileName}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-muted group-hover:text-inherit group-focus:text-inherit">{fmtSize(s.size)}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-muted group-hover:text-inherit group-focus:text-inherit">{s.packets}</td>
                     <td className={`px-2 py-1.5 lowercase group-hover:text-inherit group-focus:text-inherit ${s.difficulty === 'Recruit' ? 'text-good' : s.difficulty === 'Analyst' ? 'text-accent' : 'text-bad'}`}>

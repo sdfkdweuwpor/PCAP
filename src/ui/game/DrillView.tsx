@@ -110,21 +110,21 @@ export function DrillView() {
       {!result ? (
         <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-3 py-3" onClick={() => input.current?.focus()}>
           <p className="mb-2 text-faint">{startedAt ? 'type each token, space to commit' : 'start typing to begin the 60s clock · tokens come from this capture'}</p>
-          <p className="leading-[2] text-[14px]" aria-hidden>
+          <p className="flex flex-wrap gap-x-3 leading-[2] text-[14px]" aria-hidden>
             {view.map((w, k) => {
               const i = start + k
               const d = done[i]
               if (d) {
                 const ok = d.typed === d.word.text
                 return (
-                  <span key={i} className={`mr-3 ${ok ? 'text-muted' : 'text-bad line-through decoration-1'}`}>
+                  <span key={i} className={`break-all ${ok ? 'text-muted' : 'text-bad line-through decoration-1'}`}>
                     {w.text}
                   </span>
                 )
               }
               if (i === done.length)
                 return (
-                  <span key={i} className="mr-3 border-b border-accent">
+                  <span key={i} className="break-all border-b border-accent">
                     {w.text.split('').map((ch, j) => {
                       const t = typed[j]
                       const cls = t === undefined ? 'text-fg' : t === ch ? 'text-good' : 'bg-bad text-bg'
@@ -138,7 +138,7 @@ export function DrillView() {
                   </span>
                 )
               return (
-                <span key={i} className="mr-3 text-faint">
+                <span key={i} className="break-all text-faint">
                   {w.text}
                 </span>
               )

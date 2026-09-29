@@ -30,7 +30,7 @@ export function buildDrillWords(index: CaptureIndex, rng: () => number, count = 
     if (p.facts.http?.method) values.add(p.facts.http.method)
     if (p.facts.tls?.sni) values.add(p.facts.tls.sni)
     // Drill words are typed as single tokens, so multi-word labels are joined with '-'.
-    const label = kb.label(p).replace(/\s+/g, '-')
+    const label = kb.label(p).replace(/,?\s+/g, '-')
     if (label.length <= 16 && !/…/.test(label)) terms.add(label)
   }
   for (const k of Object.keys(FIELDS)) {
