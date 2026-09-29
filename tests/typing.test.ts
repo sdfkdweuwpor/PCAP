@@ -65,6 +65,19 @@ describe('gradeText', () => {
       for (const p of ['22', '80', '443']) expect(gradeText(ports, p).score).toBe(1)
       expect(gradeText(ports, '8080').score).toBe(0)
     })
+    it('needs exactly one non-negative whole number in the answer', () => {
+      const q = tq('number', ['443'])
+      for (const s of ['443', ' 443 ', 'port 443', 'port: 443', 'dst port = 443', '0443', '443.']) expect(gradeText(q, s).score, s).toBe(1)
+      // Two numbers, even if one is right, is a hedge, not an answer.
+      for (const s of ['443 or 80', '80 443', '443, 80', '4 43', '0x1bb']) expect(gradeText(q, s).score, s).toBe(0)
+      // Negative and fractional numbers are not the port.
+      for (const s of ['-443', '- 443', '443.5', 'port 8443', '44']) expect(gradeText(q, s).score, s).toBe(0)
+      // Each of several accepted values is fine alone, but not together.
+      const ports = tq('number', ['22', '80', '443'])
+      expect(gradeText(ports, '22').score).toBe(1)
+      expect(gradeText(ports, '22 80').score).toBe(0)
+      expect(gradeText(ports, '22, 80, 443').score).toBe(0)
+    })
   })
 
   describe('ip', () => {
@@ -105,6 +118,11 @@ describe('gradeText', () => {
       expect(gradeText(q, 'de:ad:be:ef:13:38').score).toBe(0)
       expect(gradeText(q, 'ff:ff:ff:ff:ff:ff').score).toBe(0)
       expect(gradeText(q, 'de:ad:be:ef:13').score).toBe(0)
+    })
+    it('needs exactly 12 hex digits once ": - ." and spaces are removed', () => {
+      const m = tq('mac', ['aa:bb:cc:dd:ee:ff'])
+      for (const s of ['aabb.ccdd.eeff', 'AA-BB-CC-DD-EE-FF', 'aa bb cc dd ee ff', 'aabbccddeeff', 'aa.bb.cc.dd.ee.ff', 'Aa:bB:Cc:dD:Ee:fF']) expect(gradeText(m, s).score, s).toBe(1)
+      for (const s of ['aa:bb:cc:dd:ee', 'aa:bb:cc:dd:ee:ff:00', 'aa:bb:cc:dd:ee:fg', 'aabbccddeef', 'mac aa:bb:cc:dd:ee:ff', 'aa:bb:cc:dd:ee:f']) expect(gradeText(m, s).score, s).toBe(0)
     })
   })
 
@@ -169,15 +187,82 @@ describe('gradeText', () => {
       expect(gradeText(four, 'pong').score).toBe(0)
       expect(gradeText(four, 'ping').score).toBe(1)
     })
-    it('allows two typos in strings of 16+ characters (cipher names) but not three', () => {
+    it('compares cipher-suite names token by token: same token count, digits exact, one slip per 5+-letter word', () => {
       const cipher = tq('fuzzy', ['TLS_AES_128_GCM_SHA256'])
+      // Exact, in any case.
       expect(gradeText(cipher, 'TLS_AES_128_GCM_SHA256').score).toBe(1)
       expect(gradeText(cipher, 'tls_aes_128_gcm_sha256').score).toBe(1)
-      expect(gradeText(cipher, 'TLS_AES_128_GCM_SHA25').score).toBe(1) // 1 typo
-      expect(gradeText(cipher, 'TLS_AES_128_GCM_SHA2').score).toBe(1) // 2 typos
-      expect(gradeText(cipher, 'TLS_AES_28_GCM_SHA25').score).toBe(1) // 2 typos
-      expect(gradeText(cipher, 'TLS_AES_128_GCM_SHA').score).toBe(0) // 3 typos
-      expect(gradeText(cipher, 'TLS_AES_28_GCM_SHA2').score).toBe(0) // 3 typos
+      // Any wrong or missing digit fails, however few characters differ (these used to earn the 16+ character typo budget).
+      for (const s of ['TLS_AES_128_GCM_SHA25', 'TLS_AES_28_GCM_SHA25', 'tls_aes_128_gcm_sha265', 'TLS_AES_128_GCM_SHA2', 'TLS_AES_128_GCM_SHA', 'TLS_AES_28_GCM_SHA2', 'TLS_AES_256_GCM_SHA256', 'TLS_AES_128_GCM_SHA384'])
+        expect(gradeText(cipher, s).score, s).toBe(0)
+      // A different number of tokens fails.
+      for (const s of ['TLS_AES_128_GCM', 'TLS_AES_128_GCM_SHA256_X', 'TLS_AES_128', 'AES_128_GCM_SHA256'])
+        expect(gradeText(cipher, s).score, s).toBe(0)
+      // Words shorter than 5 letters get no slip.
+      for (const s of ['TLS_AEX_128_GCM_SHA256', 'TLS_AES_128_GCN_SHA256', 'TLX_AES_128_GCM_SHA256']) expect(gradeText(cipher, s).score, s).toBe(0)
+      // Separators alone are not a difference (spaces / hyphens carry the same tokens).
+      const dashed = gradeText(cipher, 'TLS-AES-128-GCM-SHA256')
+      expect(dashed.score).toBe(1)
+      expect(dashed.note).toMatch(/punctuation/)
+    })
+    it('forgives one letter slip in a 5+-letter word of a cipher name, and at most two slips overall', () => {
+      const ecdhe = tq('fuzzy', ['TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256'])
+      expect(gradeText(ecdhe, 'TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256')).toEqual({ score: 1, note: '' })
+      expect(gradeText(ecdhe, 'tls_ecdhe_rsa_with_aes_128_gcm_sha256').score).toBe(1)
+      const slip = gradeText(ecdhe, 'TLS_ECDHA_RSA_WITH_AES_128_GCM_SHA256') // ECDHE has 5 letters
+      expect(slip.score).toBe(1)
+      expect(slip.note).toMatch(/typo/i)
+      expect(gradeText(ecdhe, 'TLS_ECDH_RSA_WITH_AES_128_GCM_SHA256').score).toBe(1) // a dropped letter is one edit too
+      // …but not in a 3-letter word (RSA), a 4-letter word (WITH), two edits in one word, or with a digit typo elsewhere.
+      expect(gradeText(ecdhe, 'TLS_ECDHE_RSB_WITH_AES_128_GCM_SHA256').score).toBe(0)
+      expect(gradeText(ecdhe, 'TLS_ECDHE_RSA_WITX_AES_128_GCM_SHA256').score).toBe(0)
+      expect(gradeText(ecdhe, 'TLS_ECDHXX_RSA_WITH_AES_128_GCM_SHA256').score).toBe(0)
+      expect(gradeText(ecdhe, 'TLS_ECDHA_RSA_WITH_AES_128_GCM_SHA25').score).toBe(0)
+      expect(gradeText(ecdhe, 'TLS_ECDHE_RSA_WITH_AES_128_GCM').score).toBe(0) // token missing
+
+      // Two slips are fine, three are not (this synthetic name has four words of 5+ letters).
+      const ecdsa = tq('fuzzy', ['TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384'])
+      expect(gradeText(ecdsa, 'TLS_ECDHA_ECDSB_WITH_AES_256_GCM_SHA384').score).toBe(1)
+      const words = tq('fuzzy', ['ALPHA_BRAVO_CHARLIE_DELTA'])
+      expect(gradeText(words, 'ALPHX_BRAVO_CHARLIE_DELTA').score).toBe(1)
+      expect(gradeText(words, 'ALPHX_BRAVX_CHARLIE_DELTA').score).toBe(1)
+      expect(gradeText(words, 'ALPHX_BRAVX_CHARLIX_DELTA').score).toBe(0)
+      expect(gradeText(words, 'ALPHX_BRAVX_CHARLIX_DELTX').score).toBe(0)
+    })
+    it('a name made only of digit-bearing words allows no slip at all', () => {
+      const chacha = tq('fuzzy', ['TLS_CHACHA20_POLY1305_SHA256'])
+      expect(gradeText(chacha, 'TLS_CHACHA20_POLY1305_SHA256').score).toBe(1)
+      expect(gradeText(chacha, 'tls_chacha20_poly1305_sha256').score).toBe(1)
+      for (const s of ['TLS_CHACHA20_POLY1305_SHA265', 'TLS_CHACHA2O_POLY1305_SHA256', 'TLS_CHACHA20_POLY1350_SHA256', 'TLS_CHACHA20_POLY1305_SHA25', 'TLS_AES_128_GCM_SHA256'])
+        expect(gradeText(chacha, s).score, s).toBe(0)
+    })
+    it('other strings of 16+ characters (no underscore) keep the two-typo budget, but never for digits', () => {
+      const host = tq('fuzzy', ['secure.example.org'])
+      expect(gradeText(host, 'secure.exmpl.org').score).toBe(1) // 2 letters dropped
+      expect(gradeText(host, 'secure.exmpl.rg').score).toBe(0) // 3
+      const versioned = tq('fuzzy', ['Transport Layer Security 1.3'])
+      expect(gradeText(versioned, 'Transport Layer Securty 1.3').score).toBe(1)
+      expect(gradeText(versioned, 'Transport Layer Security 1.2').score).toBe(0)
+    })
+    it('digits must match exactly even in short answers ("TLS 1.2" is not "TLS 1.3")', () => {
+      const ver = tq('fuzzy', ['TLS 1.3'])
+      expect(gradeText(ver, 'TLS 1.3').score).toBe(1)
+      expect(gradeText(ver, 'tls 1.3').score).toBe(1)
+      for (const s of ['TLS 1.2', 'TLS 1.30', 'TLS 2.3', 'TLS 1.', 'TLS']) expect(gradeText(ver, s).score, s).toBe(0)
+      expect(gradeText(tq('fuzzy', ['HTTP/1.1']), 'HTTP/1.0').score).toBe(0)
+      expect(gradeText(tq('fuzzy', ['SHA256']), 'SHA265').score).toBe(0)
+      expect(gradeText(tq('fuzzy', ['SHA1']), 'SHA2').score).toBe(0)
+    })
+    it('host-name answers accept a pasted URL and reduce it to the host', () => {
+      const host = tq('fuzzy', ['www.example.com'])
+      const url = gradeText(host, 'https://www.example.com/path?q=1')
+      expect(url).toEqual({ score: 1, note: 'Accepted (just the host name was needed).' })
+      for (const s of ['http://www.example.com', 'www.example.com/index.html', 'https://WWW.Example.com:8443/', 'ftp://www.example.com', 'www.example.com?x=1', 'www.example.com#frag', 'https://www.example.com.'])
+        expect(gradeText(host, s).score, s).toBe(1)
+      for (const s of ['https://www.example.org/path', 'https://example.com/www.example.com', 'https://evil.com/?h=www.example.com', 'https://www.example.com.evil.net/', 'www.example.com.evil.net'])
+        expect(gradeText(host, s).score, s).toBe(0)
+      // Only host-shaped accept lists get this treatment.
+      expect(gradeText(tq('fuzzy', ['alice']), 'https://alice/').score).toBe(0)
     })
     it('rejects clearly wrong answers', () => {
       const q = tq('fuzzy', ['SYN, ACK'])
@@ -278,12 +363,36 @@ describe('type mode specifics', () => {
     expect(grade(q, { kind: 'text', text: 'wikipedia.org' }).score).toBe(0)
   })
 
-  it('forgives a typo in the cipher-suite name on https-visit', () => {
+  it('grades the cipher-suite name on https-visit token by token (a digit typo is no longer forgiven)', () => {
     const q = https.bank.questions.find((x) => x.id.startsWith('type.cipher:')) as TextQuestion
     expect(q.accept[0]).toBe('TLS_AES_128_GCM_SHA256')
-    expect(grade(q, { kind: 'text', text: 'tls_aes_128_gcm_sha265' }).score).toBe(1)
+    expect(grade(q, { kind: 'text', text: 'TLS_AES_128_GCM_SHA256' }).score).toBe(1)
+    expect(grade(q, { kind: 'text', text: 'tls_aes_128_gcm_sha256' }).score).toBe(1)
+    expect(grade(q, { kind: 'text', text: ' Tls_Aes_128_Gcm_Sha256 ' }).score).toBe(1)
+    // Previously accepted as "1 typo"; SHA265 is a different (non-existent) hash name.
+    expect(grade(q, { kind: 'text', text: 'tls_aes_128_gcm_sha265' })).toEqual({ score: 0, feedback: 'Expected TLS_AES_128_GCM_SHA256.' })
+    expect(grade(q, { kind: 'text', text: 'TLS_AES_128_GCM_SHA25' }).score).toBe(0)
+    expect(grade(q, { kind: 'text', text: 'TLS_AES_28_GCM_SHA25' }).score).toBe(0)
     expect(grade(q, { kind: 'text', text: 'TLS_AES_256_GCM_SHA384' }).score).toBe(0)
     expect(grade(q, { kind: 'text', text: 'TLS_CHACHA20_POLY1305_SHA256' }).score).toBe(0)
+  })
+
+  it('accepts a pasted URL for host-name questions, through the engine (web-basic Host header, https-visit SNI)', () => {
+    const host = web.bank.questions.find((x) => x.id.startsWith('type.host:')) as TextQuestion
+    expect(host.accept).toEqual(['www.example.com'])
+    expect(grade(host, { kind: 'text', text: 'https://www.example.com/path?q=1' }).score).toBe(1)
+    expect(grade(host, { kind: 'text', text: 'http://example.com/' }).score).toBe(0)
+    const sni = https.bank.questions.find((x) => x.id.startsWith('type.sni:')) as TextQuestion
+    expect(grade(sni, { kind: 'text', text: 'https://secure.example.org/' }).score).toBe(1)
+  })
+
+  it('accepts the common spellings of NXDOMAIN, including "Non-Existent Domain" and "name error"', () => {
+    const l = loaded.find((x) => x.sample.id === 'dns-tunnel')!
+    const q = l.bank.questions.find((x) => x.id.startsWith('type.rcode:')) as TextQuestion
+    expect(q.match).toBe('fuzzy')
+    for (const s of ['NXDOMAIN', 'nxdomain', 'Non-Existent Domain', 'non existent domain', 'name error', 'Name Error', 'No such name', 'NX domain', '3'])
+      expect(grade(q, { kind: 'text', text: s }).score, s).toBe(1)
+    for (const s of ['SERVFAIL', 'refused', 'no error', '0', '2', 'error']) expect(grade(q, { kind: 'text', text: s }).score, s).toBe(0)
   })
 
   // Regression: short answers must not forgive digit typos ("TLS 1.2" is not "TLS 1.3").
@@ -371,7 +480,7 @@ describe('gradeFilter details on web-basic', () => {
   it('reports 1 right, 1 extra, 0 missing when the learner submits `dns` (query + response)', () => {
     const r = gradeFilter(q, index, 'dns')
     expect(r.matched).toHaveLength(2)
-    expect(r.score).toBe(0) // jaccard 1/2 < 0.6
+    expect(r.score).toBe(0) // precision 1/2 < 0.8
     expect(r.note).toBe('Matched 2 frames: 1 right, 1 extra, 0 missing.')
   })
 
@@ -386,7 +495,7 @@ describe('gradeFilter details on web-basic', () => {
     const dns = bank.questions.find((x) => x.id === 'filter.dns') as FilterQuestion
     expect(dns.target).toHaveLength(2)
     const r = gradeFilter(dns, index, 'dns.flags.response == 1')
-    expect(r).toMatchObject({ score: 0, note: 'Matched 1 frame: 1 right, 0 extra, 1 missing.' }) // jaccard 1/2 < 0.6
+    expect(r).toMatchObject({ score: 0, note: 'Matched 1 frame: 1 right, 0 extra, 1 missing.' }) // recall 1/2 < 0.8
   })
 
   it('reports wrong frames as extra and missing at once', () => {
@@ -395,15 +504,80 @@ describe('gradeFilter details on web-basic', () => {
     expect(r.note).toBe('Matched 2 frames: 0 right, 2 extra, 1 missing.')
   })
 
-  it('gives 0.5 ("Close") when the Jaccard overlap is at least 0.6', () => {
-    const fin = bank.questions.find((x) => x.id === 'filter.fin') as FilterQuestion
-    expect(fin.target).toHaveLength(2)
-    // 2 right + 1 extra (the SYN-ACK): jaccard 2/3 >= 0.6
-    const r = gradeFilter(fin, index, 'tcp.flags.fin == 1 || (tcp.flags.syn == 1 && tcp.flags.ack == 1)')
-    expect(r.score).toBe(0.5)
-    expect(r.note).toBe('Close — Matched 3 frames: 2 right, 1 extra, 0 missing.')
-    // 2 right + 2 extra: jaccard 2/4 < 0.6
-    expect(gradeFilter(fin, index, 'tcp.flags.fin == 1 || tcp.flags.syn == 1').score).toBe(0)
+  // Partial credit ("Close") needs BOTH precision (right / matched) >= 0.8 AND recall (right / target) >= 0.8.
+  // The old Jaccard rule (right / union >= 0.6) would have given 0.5 to several of the cases below that now score 0.
+  describe('gives 0.5 ("Close") only when precision >= 0.8 AND recall >= 0.8', () => {
+    const from = bank.questions.find((x) => x.id === 'filter.from:192.168.1.23') as FilterQuestion
+    // Frames sent by the client: 1, 3, 5, 6, 9, 10, 12, 13, 15.
+    const CLIENT = 'ip.src == 192.168.1.23'
+
+    it('the reference question targets the 9 client frames', () => {
+      expect(from.target).toEqual([1, 3, 5, 6, 9, 10, 12, 13, 15])
+      expect(from.reference).toBe(CLIENT)
+    })
+
+    it('precision side: 1 or 2 extra frames out of 9 right is Close (9/10, 9/11); 3 extra (9/12 = 0.75) is not', () => {
+      const one = gradeFilter(from, index, `${CLIENT} || dns.flags.response == 1`) // + frame 2
+      expect(one.score).toBe(0.5)
+      expect(one.note).toBe('Close — Matched 10 frames: 9 right, 1 extra, 0 missing.')
+      const two = gradeFilter(from, index, `${CLIENT} || dns.flags.response == 1 || tcp.flags.syn == 1 && tcp.flags.ack == 1`) // + frames 2, 4
+      expect(two.score).toBe(0.5) // 9/11 = 0.818
+      expect(two.note).toBe('Close — Matched 11 frames: 9 right, 2 extra, 0 missing.')
+      const three = gradeFilter(from, index, `${CLIENT} || dns.flags.response == 1 || tcp.flags.syn == 1 && tcp.flags.ack == 1 || http.response.code >= 400`) // + frame 11
+      expect(three.score).toBe(0) // precision 0.75; Jaccard would have been 0.75 >= 0.6
+      expect(three.note).toBe('Matched 12 frames: 9 right, 3 extra, 0 missing.')
+    })
+
+    it('recall side: 8 of 9 found is Close (0.889); 7 of 9 (0.778) is not, although its Jaccard is 0.778', () => {
+      const eight = gradeFilter(from, index, `${CLIENT} && frame.number <= 13`)
+      expect(eight.score).toBe(0.5)
+      expect(eight.note).toBe('Close — Matched 8 frames: 8 right, 0 extra, 1 missing.')
+      const seven = gradeFilter(from, index, `${CLIENT} && frame.number <= 12`)
+      expect(seven.score).toBe(0)
+      expect(seven.note).toBe('Matched 7 frames: 7 right, 0 extra, 2 missing.')
+      expect(gradeFilter(from, index, `${CLIENT} && frame.number <= 10`).score).toBe(0) // 6 of 9 = 0.667
+    })
+
+    it('the old Jaccard example (fin question: 2 right + 1 extra) is no longer Close: precision is only 2/3', () => {
+      const fin = bank.questions.find((x) => x.id === 'filter.fin') as FilterQuestion
+      expect(fin.target).toHaveLength(2)
+      const r = gradeFilter(fin, index, 'tcp.flags.fin == 1 || (tcp.flags.syn == 1 && tcp.flags.ack == 1)') // Jaccard 2/3 >= 0.6
+      expect(r.score).toBe(0)
+      expect(r.note).toBe('Matched 3 frames: 2 right, 1 extra, 0 missing.')
+      expect(gradeFilter(fin, index, 'tcp.flags.fin == 1 || tcp.flags.syn == 1').score).toBe(0) // 2 right + 2 extra
+      expect(gradeFilter(fin, index, 'tcp.flags.fin == 1 && ip.src == 192.168.1.23').score).toBe(0) // recall 1/2
+    })
+
+    it('the thresholds are inclusive: exactly 0.8 and 0.8 is Close, just under either is not', () => {
+      const five: FilterQuestion = { ...from, id: 'synthetic', target: [1, 2, 3, 4, 5] }
+      // 4 right, 1 extra (frame 9), 1 missing (frame 5): precision 4/5 and recall 4/5.
+      const both = gradeFilter(five, index, 'frame.number <= 4 || frame.number == 9')
+      expect(both.score).toBe(0.5)
+      expect(both.note).toBe('Close — Matched 5 frames: 4 right, 1 extra, 1 missing.')
+      // Precision 1.0, recall exactly 0.8.
+      expect(gradeFilter(five, index, 'frame.number <= 4').score).toBe(0.5)
+      // Recall exactly 0.8, precision 4/6.
+      expect(gradeFilter(five, index, 'frame.number <= 4 || frame.number == 9 || frame.number == 10').score).toBe(0)
+      // Precision 5/6 = 0.833 with full recall is Close; 5/7 = 0.714 is not.
+      expect(gradeFilter(five, index, 'frame.number <= 6').score).toBe(0.5)
+      expect(gradeFilter(five, index, 'frame.number <= 7').score).toBe(0)
+      // Precision 1.0, recall 0.6.
+      expect(gradeFilter(five, index, 'frame.number <= 3').score).toBe(0)
+      // Matching everything: recall 1.0 but precision 5/15.
+      expect(gradeFilter(five, index, 'frame').score).toBe(0)
+      // Matching nothing: no division by zero, just 0.
+      const none = gradeFilter(five, index, 'frame.number > 1000')
+      expect(none).toMatchObject({ score: 0, matched: [] })
+      expect(none.note).toBe('Matched 0 frames: 0 right, 0 extra, 5 missing.')
+    })
+
+    it('an exact match is still 1, and the engine passes the score through', () => {
+      const exact = gradeFilter(from, index, CLIENT)
+      expect(exact.score).toBe(1)
+      expect(exact.note).toBe('Exact match — Matched 9 frames: 9 right, 0 extra, 0 missing.')
+      expect(grade(from, { kind: 'filter', text: `${CLIENT} && frame.number <= 13` }, undefined, index)).toEqual({ score: 0.5, feedback: 'Close — Matched 8 frames: 8 right, 0 extra, 1 missing.' })
+      expect(grade(from, { kind: 'filter', text: `${CLIENT} && frame.number <= 12` }, undefined, index).score).toBe(0)
+    })
   })
 
   it('throws (FilterError) from gradeFilter itself on invalid syntax; the engine converts it into a grade', () => {

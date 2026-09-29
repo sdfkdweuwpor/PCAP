@@ -79,8 +79,8 @@ export function makeOptions(correct: string, distractors: string[], rng: () => n
     balanced = [padTo(raw[0], longest), ...balanced.slice(1)]
     if (balanced[0] === raw[0] || lengthRatio(balanced) > MAX_LENGTH_RATIO) return null
   }
-  // The correct answer must not stand out as the longest.
-  if (!correctNotLongest(balanced)) return null
+  // The correct answer must not stand out as the longest, and padding must not have made two options identical.
+  if (!correctNotLongest(balanced) || new Set(balanced).size !== balanced.length) return null
   const order = shuffle([0, 1, 2, 3], rng)
   return { options: order.map((i) => balanced[i]), correct: order.indexOf(0) }
 }

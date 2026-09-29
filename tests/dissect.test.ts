@@ -20,6 +20,8 @@ import {
   tlsServerHello,
   udp,
 } from '../src/samples/builder'
+import { maskInfo, secretsOf } from '../src/game/knowledge'
+import type { Field, PacketSummary } from '../src/core/types'
 import { all, find, indexOf, single, slice } from './helpers'
 
 const hex = (s: string) => Uint8Array.from(s.replace(/\s+/g, '').match(/../g)!.map((b) => parseInt(b, 16)))
@@ -119,8 +121,11 @@ describe('application protocols', () => {
     expect(m.offset).toBe(54)
     expect(new TextDecoder().decode(h.frame.subarray(m.offset, m.offset + m.length))).toBe('GET')
     expect(find(h.d.layers, 'http.host')!.offset).toBe(54 + 'GET /admin HTTP/1.1\r\n'.length)
-    expect(h.d.facts.creds).toEqual({ proto: 'HTTP', kind: 'basic', user: 'alice', secret: 'hunter2' })
+    // `wire` is the base64 token exactly as sent, so the UI can mask it as well as the decoded password.
+    expect(h.d.facts.creds).toEqual({ proto: 'HTTP', kind: 'basic', user: 'alice', secret: 'hunter2', wire: 'YWxpY2U6aHVudGVyMg==' })
     expect(find(h.d.layers, 'http.authbasic')!.secret).toBe(true)
+    // The raw header line itself carries the base64 token, so it is a secret node too.
+    expect(find(h.d.layers, 'http.authorization')!.secret).toBe(true)
     expect(h.d.color).toBe('cleartext')
   })
 
@@ -227,5 +232,162 @@ describe('link types', () => {
     const frag = ethernet('02:00:00:00:00:01', '02:00:00:00:00:02', 0x0800, ipv4('10.0.0.1', '10.0.0.2', 17, new Uint8Array(40), { mf: false, df: false, fragOffset: 1480 }))
     const { index } = indexOf(writePcap([{ ts: 1, data: frag }]))
     expect(index.packets[0].info).toMatch(/Fragmented IP protocol/)
+  })
+})
+
+// ---------------------------------------------------------------- application dissector edge cases
+
+/** Every node must be a finite, non-negative range that lies inside the frame. */
+function expectSaneFields(frame: Uint8Array, layers: Field[], label: string) {
+  for (const f of all(layers)) {
+    const who = `${label}: ${f.key ?? f.name} (${f.offset}+${f.length})`
+    expect(Number.isFinite(f.offset) && Number.isFinite(f.length), `${who} is not finite`).toBe(true)
+    expect(f.offset, who).toBeGreaterThanOrEqual(0)
+    expect(f.length, who).toBeGreaterThanOrEqual(0)
+    expect(f.offset + f.length, who).toBeLessThanOrEqual(frame.length)
+  }
+}
+
+describe('text protocol lines without a space', () => {
+  const eth = (payload: Uint8Array) => ethernet('02:00:00:00:00:01', '02:00:00:00:00:02', 0x0800, payload)
+  const toServer = (port: number, body: string) => single(eth(ipv4('10.0.0.2', '10.0.0.9', 6, tcp(50010, port, 1, 1, { ack: true, psh: true }, text(body)))))
+  const fromServer = (port: number, body: string) => single(eth(ipv4('10.0.0.9', '10.0.0.2', 6, tcp(port, 50010, 1, 1, { ack: true, psh: true }, text(body)))))
+
+  it('an IMAP request with no space (NOOP) yields a command node of the right length and no negative lengths', () => {
+    const p = toServer(143, 'NOOP\r\n')
+    expectSaneFields(p.frame, p.d.layers, 'NOOP')
+    const cmd = find(p.d.layers, 'imap.request.command')!
+    expect([cmd.offset, cmd.length, cmd.value]).toEqual([54, 4, 'NOOP'])
+    expect(slice(p.frame, cmd)).toEqual([...text('NOOP')])
+    expect(find(p.d.layers, 'imap.request_tag')).toBeUndefined() // "NOOP" is the command, not a tag
+    expect(find(p.d.layers, 'imap.request.arg')).toBeUndefined()
+    expect(p.d.facts.app).toMatchObject({ proto: 'IMAP', isRequest: true, command: 'NOOP', arg: '' })
+    expect(p.d.info).toBe('Request: NOOP')
+  })
+
+  it('keeps every field inside the frame for a range of odd IMAP / POP3 / FTP / SMTP lines', () => {
+    const lines = ['NOOP\r\n', 'LOGOUT\r\n', 'a001 NOOP\r\n', 'a001 LOGIN bob pw\r\n', 'a001\r\n', 'a001 \r\n', ' \r\n', '\r\n', 'CAPABILITY', 'a1 CAPABILITY', 'x\r\ny\r\n', 'A B C D\r\nE\r\n', '\r\n\r\nNOOP\r\n']
+    for (const port of [143, 110, 21, 25]) {
+      for (const l of lines) {
+        const req = toServer(port, l)
+        expectSaneFields(req.frame, req.d.layers, `port ${port} request ${JSON.stringify(l)}`)
+        const rep = fromServer(port, l)
+        expectSaneFields(rep.frame, rep.d.layers, `port ${port} reply ${JSON.stringify(l)}`)
+      }
+    }
+  })
+
+  it('a tagged IMAP request still splits tag / command / arg on the right bytes', () => {
+    const p = toServer(143, 'a001 SELECT INBOX\r\n')
+    expect(find(p.d.layers, 'imap.request_tag')).toMatchObject({ offset: 54, length: 4, value: 'a001' })
+    expect(find(p.d.layers, 'imap.request.command')).toMatchObject({ offset: 59, length: 6, value: 'SELECT' })
+    expect(find(p.d.layers, 'imap.request.arg')).toMatchObject({ offset: 66, length: 5, value: 'INBOX' })
+    expectSaneFields(p.frame, p.d.layers, 'SELECT')
+  })
+})
+
+describe('DHCP options', () => {
+  const eth = (payload: Uint8Array) => ethernet('02:00:00:00:00:02', 'ff:ff:ff:ff:ff:ff', 0x0800, payload)
+  const wrap = (bootp: Uint8Array) => single(eth(ipv4('192.168.1.1', '255.255.255.255', 17, udp(67, 68, bootp))))
+  const base = dhcp(2, 2, 0x1234, '02:00:00:00:00:02', { yiaddr: '192.168.1.50' })
+  const endByte = base.length - 1
+
+  it('test setup: the builder terminates the option list with END (255)', () => {
+    expect(base[endByte]).toBe(255)
+    expect([...base.subarray(endByte - 3, endByte)]).toEqual([53, 1, 2]) // ...preceded by option 53 (message type) = Offer
+  })
+
+  it('a lone option code as the very last byte neither throws nor creates a NaN or negative field', () => {
+    for (const code of [12, 53, 54, 1, 6, 51, 3, 50, 100]) {
+      const bootp = Uint8Array.from([...base.subarray(0, endByte), code]) // replace END with a bare option code
+      const p = wrap(bootp)
+      expect(p.d.facts.malformed, `code ${code}`).toBeUndefined()
+      expect(p.d.protocol, `code ${code}`).toBe('DHCP')
+      expect(p.d.facts.dhcp!.msgType).toBe('Offer')
+      expect(p.d.facts.dhcp!.yiaddr).toBe('192.168.1.50')
+      expectSaneFields(p.frame, p.d.layers, `lone option ${code}`)
+      // The truncated option is not shown, and nothing follows the message-type option.
+      const opts = all(p.d.layers).filter((f) => f.key?.startsWith('dhcp.option.'))
+      expect(opts.map((f) => f.key), `code ${code}`).toEqual(['dhcp.option.dhcp', 'dhcp.option.length'])
+    }
+  })
+
+  it('an option whose declared length runs past the end of the packet is dropped without NaN fields', () => {
+    // 12 (host name), length 10, but only 3 bytes of data follow.
+    const bootp = Uint8Array.from([...base.subarray(0, endByte), 12, 10, 0x61, 0x62, 0x63])
+    const p = wrap(bootp)
+    expect(p.d.facts.malformed).toBeUndefined()
+    expect(p.d.facts.dhcp!.hostname).toBeUndefined()
+    expectSaneFields(p.frame, p.d.layers, 'overlong option')
+  })
+
+  it('a well-formed option list with a host name still reports it, all fields in range', () => {
+    const p = wrap(dhcp(1, 3, 7, '02:00:00:00:00:09', { options: [[12, [...text('laptop')]], [50, [192, 168, 1, 50]]] }))
+    expect(p.d.facts.dhcp).toMatchObject({ msgType: 'Request', hostname: 'laptop', requestedIp: '192.168.1.50' })
+    expectSaneFields(p.frame, p.d.layers, 'well-formed')
+  })
+})
+
+describe('SMTP AUTH PLAIN', () => {
+  const eth = (payload: Uint8Array) => ethernet('02:00:00:00:00:01', '02:00:00:00:00:02', 0x0800, payload)
+  // base64("\0alice\0hunter2")
+  const TOKEN = 'AGFsaWNlAGh1bnRlcjI='
+  const line = `AUTH PLAIN ${TOKEN}\r\n`
+  const p = single(eth(ipv4('10.0.0.2', '10.0.0.25', 6, tcp(50011, 25, 1, 1, { ack: true, psh: true }, text(line)))))
+
+  it('decodes the credentials and keeps the base64 token as `wire`', () => {
+    expect(Buffer.from(TOKEN, 'base64').toString('latin1')).toBe('\u0000alice\u0000hunter2')
+    expect(p.d.facts.creds).toEqual({ proto: 'SMTP', kind: 'login', user: 'alice', secret: 'hunter2', wire: TOKEN })
+    expect(p.d.color).toBe('cleartext')
+  })
+
+  it('marks smtp.request.arg as a secret and points it at "PLAIN <token>"', () => {
+    const arg = find(p.d.layers, 'smtp.request.arg')!
+    expect(arg.secret).toBe(true)
+    expect(arg.warn).toBe(true)
+    expect(arg.offset).toBe(54 + 'AUTH '.length)
+    expect(new TextDecoder().decode(p.frame.subarray(arg.offset, arg.offset + arg.length))).toBe(`PLAIN ${TOKEN}`)
+    expect(find(p.d.layers, 'smtp.request.command')).toMatchObject({ value: 'AUTH', offset: 54, length: 4 })
+    expectSaneFields(p.frame, p.d.layers, 'AUTH PLAIN')
+  })
+
+  it('other SMTP commands are not secret and set no credentials', () => {
+    const ehlo = single(eth(ipv4('10.0.0.2', '10.0.0.25', 6, tcp(50011, 25, 1, 1, { ack: true, psh: true }, text('EHLO client.example\r\n')))))
+    expect(find(ehlo.d.layers, 'smtp.request.arg')!.secret).toBeUndefined()
+    expect(ehlo.d.facts.creds).toBeUndefined()
+    const login = single(eth(ipv4('10.0.0.2', '10.0.0.25', 6, tcp(50011, 25, 1, 1, { ack: true, psh: true }, text('AUTH LOGIN\r\n')))))
+    expect(login.d.facts.creds).toBeUndefined()
+  })
+})
+
+describe('secretsOf / maskInfo', () => {
+  const summary = (info: string, creds: PacketSummary['facts']['creds']) => ({ info, facts: { protos: [], creds } }) as unknown as PacketSummary
+
+  it('secretsOf returns [wire, secret], skipping the empty ones', () => {
+    expect(secretsOf(summary('', { proto: 'SMTP', kind: 'login', user: 'alice', secret: 'hunter2', wire: 'AGFsaWNlAGh1bnRlcjI=' }))).toEqual(['AGFsaWNlAGh1bnRlcjI=', 'hunter2'])
+    expect(secretsOf(summary('', { proto: 'FTP', kind: 'pass', secret: 's3cret' }))).toEqual(['s3cret'])
+    expect(secretsOf(summary('', { proto: 'FTP', kind: 'user', user: 'alice' }))).toEqual([])
+    expect(secretsOf(summary('', { proto: 'FTP', kind: 'pass', secret: '', wire: '' }))).toEqual([])
+    expect(secretsOf(summary('', undefined))).toEqual([])
+  })
+
+  it('maskInfo masks both the decoded secret and the wire form, wherever they appear in the info string', () => {
+    const p = summary('Request: AUTH PLAIN AGFsaWNlAGh1bnRlcjI= (pw hunter2)', { proto: 'SMTP', kind: 'login', user: 'alice', secret: 'hunter2', wire: 'AGFsaWNlAGh1bnRlcjI=' })
+    const masked = maskInfo(p)
+    expect(masked).toBe('Request: AUTH PLAIN •••••••• (pw •••••••)')
+    expect(masked).not.toContain('AGFsaWNl')
+    expect(masked).not.toContain('hunter2')
+    expect(maskInfo(summary('USER alice', { proto: 'FTP', kind: 'user', user: 'alice' }))).toBe('USER alice')
+    expect(maskInfo(summary('no creds here', undefined))).toBe('no creds here')
+  })
+
+  it('masks a real dissected packet: the FTP password and the SMTP token', () => {
+    const eth = (payload: Uint8Array) => ethernet('02:00:00:00:00:01', '02:00:00:00:00:02', 0x0800, payload)
+    const ftp = indexOf(writePcap([{ ts: 1, data: eth(ipv4('10.0.0.2', '10.0.0.9', 6, tcp(50002, 21, 1, 1, { ack: true, psh: true }, text('PASS s3cret\r\n')))) }])).index.packets[0]
+    expect(ftp.info).toBe('Request: PASS s3cret')
+    expect(maskInfo(ftp)).toBe('Request: PASS ••••••')
+    const smtp = indexOf(writePcap([{ ts: 1, data: eth(ipv4('10.0.0.2', '10.0.0.25', 6, tcp(50011, 25, 1, 1, { ack: true, psh: true }, text('AUTH PLAIN AGFsaWNlAGh1bnRlcjI=\r\n')))) }])).index.packets[0]
+    expect(smtp.info).toContain('AGFsaWNlAGh1bnRlcjI=')
+    expect(maskInfo(smtp)).toBe('Request: AUTH PLAIN ••••••••')
   })
 })

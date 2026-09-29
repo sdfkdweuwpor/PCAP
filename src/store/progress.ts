@@ -83,7 +83,7 @@ export function sanitizeProgress(raw: unknown): Progress {
   const concepts: Progress['concepts'] = {}
   if (d.concepts && typeof d.concepts === 'object') {
     for (const [k, v] of Object.entries(d.concepts as Record<string, unknown>)) {
-      if (!(k in CONCEPT_LABEL) || !v || typeof v !== 'object') continue
+      if (!Object.hasOwn(CONCEPT_LABEL, k) || !v || typeof v !== 'object') continue
       const seen = Math.floor(num((v as ConceptStat).seen))
       if (!seen) continue
       concepts[k as Concept] = { seen, correct: num((v as ConceptStat).correct, 0, seen) }
