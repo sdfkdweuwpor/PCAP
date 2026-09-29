@@ -25,6 +25,7 @@ import { Btn, Kbd, Meter } from '../term'
 import { TIER_TONE } from '../tones'
 import { ExplanationCard } from './ExplanationCard'
 import { XpFloat } from './XpFloat'
+import { SessionNav } from './SessionNav'
 
 const pad = (n: number) => String(n).padStart(2, '0')
 const clock = (s: number) => `${pad(Math.floor(s / 60))}:${pad(s % 60)}`
@@ -64,6 +65,7 @@ export function QuestionView() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col text-[12.5px]">
+      <SessionNav />
       <div className="shrink-0 border-b border-line px-3 py-1.5 text-[11px]">
         <div className="flex items-center gap-2 uppercase tracking-[0.1em]">
           <span className="text-fg">
@@ -80,7 +82,7 @@ export function QuestionView() {
             ) : (
               showTimer && <span className="text-muted">{clock(elapsed)}</span>
             )}
-            <button onClick={() => useGame.getState().finish()} className="text-faint underline-offset-2 hover:text-fg hover:underline">
+            <button onClick={() => useGame.getState().finish()} className="text-faint underline-offset-2 hover:text-fg hover:underline" title="End the session and see the report">
               end
             </button>
           </span>

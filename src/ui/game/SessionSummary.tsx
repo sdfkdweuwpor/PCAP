@@ -103,7 +103,15 @@ export function SessionSummary() {
             play again
           </Btn>
         )}
-        <Btn onClick={() => useGame.getState().toMenu()}>menu</Btn>
+        <Btn onClick={() => useGame.getState().toMenu()}>modes</Btn>
+        <Btn
+          onClick={() => {
+            useGame.getState().toMenu()
+            useCapture.getState().close()
+          }}
+        >
+          home
+        </Btn>
       </div>
     </div>
   )
