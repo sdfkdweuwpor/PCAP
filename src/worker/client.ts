@@ -34,7 +34,15 @@ function getWorker(): Worker | null {
 /** Parses in a worker. The caller keeps `bytes`; a copy is transferred to the worker. */
 export function parseCapture(bytes: Uint8Array, fileName: string, onProgress: (p: ParseProgress) => void): Promise<CaptureIndex> {
   const w = getWorker()
-  if (!w) {
+  if (!w) return parseOnMainThread(bytes, fileName, onProgress)
+  return parseInWorker(w, bytes, fileName, onProgress).catch((e) => {
+    // A worker that fails to load (blocked script, old browser) should not stop the app: parse here instead.
+    if (e instanceof ParseError && e.kind === 'internal' && e.message.startsWith('worker:')) return parseOnMainThread(bytes, fileName, onProgress)
+    throw e
+  })
+}
+
+function parseOnMainThread(bytes: Uint8Array, fileName: string, onProgress: (p: ParseProgress) => void): Promise<CaptureIndex> {
     return new Promise((resolve, reject) => {
       setTimeout(() => {
         try {
@@ -44,7 +52,9 @@ export function parseCapture(bytes: Uint8Array, fileName: string, onProgress: (p
         }
       }, 0)
     })
-  }
+}
+
+function parseInWorker(w: Worker, bytes: Uint8Array, fileName: string, onProgress: (p: ParseProgress) => void): Promise<CaptureIndex> {
   const id = nextId++
   const copy = bytes.slice().buffer
   const packets: CaptureIndex['packets'] = []
@@ -68,7 +78,7 @@ export function parseCapture(bytes: Uint8Array, fileName: string, onProgress: (p
       w.removeEventListener('error', onError)
       worker?.terminate()
       worker = null
-      reject(new ParseError(e.message || 'The parser crashed.', 'internal'))
+      reject(new ParseError(`worker: ${e.message || 'failed to start'}`, 'internal'))
     }
     w.addEventListener('message', onMessage)
     w.addEventListener('error', onError)

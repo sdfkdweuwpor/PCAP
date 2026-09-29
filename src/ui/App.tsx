@@ -18,7 +18,7 @@ export default function App() {
 
   useEffect(() => {
     const root = document.documentElement
-    root.dataset.theme = theme
+    root.dataset.screen = theme
     root.dataset.crt = crt && theme !== 'paper' ? 'on' : 'off'
     root.dataset.motion = motionPref === 'on' ? 'reduced' : motionPref === 'off' ? 'full' : 'system'
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME_COLOR[theme])

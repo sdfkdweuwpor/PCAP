@@ -3,7 +3,7 @@
 /* ---------------------------------------------------------------- PacketQuest "analyst terminal" tokens
    Three screens: amber phosphor (default), green phosphor, and paper (a light line-printer look). */
 :root,
-:root[data-theme='amber'] {
+:root[data-screen='amber'] {
   color-scheme: dark;
   --bg: #0b0906;
   --panel: #0f0c08;
@@ -41,7 +41,7 @@
   --row-alpha: 10%;
 }
 
-:root[data-theme='green'] {
+:root[data-screen='green'] {
   color-scheme: dark;
   --bg: #040a06;
   --panel: #07100a;
@@ -79,7 +79,7 @@
   --row-alpha: 10%;
 }
 
-:root[data-theme='paper'] {
+:root[data-screen='paper'] {
   color-scheme: light;
   --bg: #ece5d4;
   --panel: #f7f2e5;

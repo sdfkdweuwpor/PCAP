@@ -26,12 +26,18 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
 
   const set = (patch: Partial<Settings>) => p.setSettings(patch)
   const exportFile = () => {
-    const blob = new Blob([p.exportJSON()], { type: 'application/json' })
+    const json = p.exportJSON()
+    const blob = new Blob([json], { type: 'application/json' })
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
     a.download = `packetquest-progress-${new Date().toISOString().slice(0, 10)}.json`
     a.click()
     setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+    // Sandboxed embeds block downloads, so also put the JSON on the clipboard.
+    navigator.clipboard?.writeText(json).then(
+      () => setMsg('[ ok ] exported; JSON also copied to clipboard'),
+      () => setMsg('[ ok ] export started'),
+    )
   }
 
   const concepts = (Object.entries(p.concepts) as [Concept, { seen: number; correct: number }][]).sort((a, b) => b[1].seen - a[1].seen)
