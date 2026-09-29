@@ -11,7 +11,7 @@ import { Kbd, Meter } from './term'
 export function ThemeSwitch() {
   const theme = useProgress((s) => s.settings.theme)
   const set = useProgress((s) => s.setSettings)
-  const opts: Settings['theme'][] = ['amber', 'green', 'paper']
+  const opts: Settings['theme'][] = ['dark', 'paper']
   const refs = useRef<(HTMLButtonElement | null)[]>([])
 
   // Radio-group keyboard pattern: arrows move the checked radio (roving tabindex, wraps around).

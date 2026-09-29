@@ -8,7 +8,6 @@ import { consoleHotkeyAllowed } from '../hotkeys'
 import { FlowView } from '../panes/FlowView'
 import { Btn, Kbd } from '../term'
 import { ChoiceBody } from './QuestionView'
-import { SessionNav } from './SessionNav'
 
 export function StoryPlayer() {
   const story = useCapture((s) => s.bank?.story)!
@@ -47,7 +46,6 @@ export function StoryPlayer() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col text-[12.5px]">
-      <SessionNav />
       <div className="shrink-0 border-b border-line px-3 py-1.5 text-[11px]">
         <div className="flex items-center gap-2 uppercase tracking-[0.1em]">
           <span className="text-accent">g walkthrough</span>

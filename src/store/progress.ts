@@ -6,7 +6,7 @@ import { CONCEPT_LABEL, type Concept } from '../game/types'
 import { loadJSON, removeKey, saveJSON } from './storage'
 
 export interface Settings {
-  theme: 'amber' | 'green' | 'paper'
+  theme: 'dark' | 'paper'
   /** Scanline/vignette overlay on the phosphor screens. */
   crt: boolean
   /** 'system' follows prefers-reduced-motion. */
@@ -53,7 +53,7 @@ export const DEFAULT_PROGRESS: Progress = {
   concepts: {},
   sessions: [],
   drill: { bestWpm: 0, bestAccuracy: 0, runs: 0 },
-  settings: { theme: 'amber', crt: true, reduceMotion: 'system', unlockAll: false, showTimer: true, hotkeys: true, aiExplain: false },
+  settings: { theme: 'dark', crt: true, reduceMotion: 'system', unlockAll: false, showTimer: true, hotkeys: true, aiExplain: false },
 }
 
 interface ProgressStore extends Progress {
@@ -105,7 +105,8 @@ export function sanitizeProgress(raw: unknown): Progress {
     : []
   const st = (d.settings && typeof d.settings === 'object' ? d.settings : {}) as Record<string, unknown>
   const def = DEFAULT_PROGRESS.settings
-  const legacy = st.theme === 'dark' ? 'amber' : st.theme === 'light' ? 'paper' : st.theme
+  // Older saves used amber/green phosphor screens (both now 'dark') or light/dark.
+  const legacy = st.theme === 'amber' || st.theme === 'green' ? 'dark' : st.theme === 'light' ? 'paper' : st.theme
   const drill = (d.drill && typeof d.drill === 'object' ? d.drill : {}) as Record<string, unknown>
   const answered = Math.floor(num(d.answered))
   return {
@@ -118,7 +119,7 @@ export function sanitizeProgress(raw: unknown): Progress {
     sessions,
     drill: { bestWpm: Math.floor(num(drill.bestWpm, 0, 400)), bestAccuracy: num(drill.bestAccuracy, 0, 1), runs: Math.floor(num(drill.runs)) },
     settings: {
-      theme: oneOf(legacy, ['amber', 'green', 'paper'] as const, def.theme),
+      theme: oneOf(legacy, ['dark', 'paper'] as const, def.theme),
       crt: bool(st.crt, def.crt),
       reduceMotion: oneOf(st.reduceMotion, ['system', 'on', 'off'] as const, def.reduceMotion),
       unlockAll: bool(st.unlockAll, def.unlockAll),

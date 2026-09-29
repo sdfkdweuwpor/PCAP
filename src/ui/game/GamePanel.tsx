@@ -6,6 +6,7 @@ import { Confetti } from './Confetti'
 import { DrillView } from './DrillView'
 import { ModeMenu } from './ModeMenu'
 import { QuestionView } from './QuestionView'
+import { SessionNav } from './SessionNav'
 import { SessionSummary } from './SessionSummary'
 import { StoryPlayer } from './StoryPlayer'
 
@@ -35,22 +36,25 @@ export function GamePanel({ onToggleWide, wide }: { onToggleWide?: () => void; w
           <span className="text-faint">$</span> generating exercises from capture… <span className="cursor-block" aria-hidden />
         </p>
       ) : (
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div
-            key={phase === 'feedback' ? 'question' : phase}
-            className="flex min-h-0 flex-1 flex-col"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.1 }}
-          >
-            {phase === 'menu' && <ModeMenu />}
-            {(phase === 'question' || phase === 'feedback') && <QuestionView />}
-            {phase === 'summary' && <SessionSummary />}
-            {phase === 'story' && <StoryPlayer />}
-            {phase === 'drill' && <DrillView />}
-          </motion.div>
-        </AnimatePresence>
+        <>
+          <SessionNav onModes={phase === 'menu'} />
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={phase === 'feedback' ? 'question' : phase}
+              className="flex min-h-0 flex-1 flex-col"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.1 }}
+            >
+              {phase === 'menu' && <ModeMenu />}
+              {(phase === 'question' || phase === 'feedback') && <QuestionView />}
+              {phase === 'summary' && <SessionSummary />}
+              {phase === 'story' && <StoryPlayer />}
+              {phase === 'drill' && <DrillView />}
+            </motion.div>
+          </AnimatePresence>
+        </>
       )}
       <Confetti trigger={milestone} badge />
     </Frame>

@@ -188,8 +188,8 @@ describe('sanitizeProgress', () => {
     expect(p.version).toBe(1)
     expect(p.xp).toBe(0)
     expect(p.concepts).toEqual({})
-    expect(['amber', 'green', 'paper']).toContain(p.settings.theme)
-    expect(p.settings.theme).toBe('amber')
+    expect(['dark', 'paper']).toContain(p.settings.theme)
+    expect(p.settings.theme).toBe('dark')
     for (const k of ['crt', 'unlockAll', 'showTimer', 'hotkeys', 'aiExplain'] as const) expect(typeof p.settings[k], k).toBe('boolean')
     expect(p).toEqual(DEFAULT_PROGRESS)
   })
@@ -198,13 +198,14 @@ describe('sanitizeProgress', () => {
     for (const raw of [undefined, null, 'lots', 42, true, [], [1, 2, 3]]) expect(sanitizeProgress(raw), String(raw)).toEqual(DEFAULT_PROGRESS)
   })
 
-  it('migrates legacy themes: dark -> amber, light -> paper; valid themes are kept', () => {
-    expect(sanitizeProgress({ settings: { theme: 'dark' } }).settings.theme).toBe('amber')
+  it('migrates legacy themes: amber/green -> dark, light -> paper; valid themes are kept', () => {
+    expect(sanitizeProgress({ settings: { theme: 'amber' } }).settings.theme).toBe('dark')
+    expect(sanitizeProgress({ settings: { theme: 'green' } }).settings.theme).toBe('dark')
     expect(sanitizeProgress({ settings: { theme: 'light' } }).settings.theme).toBe('paper')
-    expect(sanitizeProgress({ settings: { theme: 'green' } }).settings.theme).toBe('green')
+    expect(sanitizeProgress({ settings: { theme: 'dark' } }).settings.theme).toBe('dark')
     expect(sanitizeProgress({ settings: { theme: 'paper' } }).settings.theme).toBe('paper')
-    expect(sanitizeProgress({ settings: { theme: 'DARK' } }).settings.theme).toBe('amber') // not a known legacy spelling: default
-    expect(sanitizeProgress({ settings: { theme: 3 } }).settings.theme).toBe('amber')
+    expect(sanitizeProgress({ settings: { theme: 'DARK' } }).settings.theme).toBe('dark') // not a known spelling: default
+    expect(sanitizeProgress({ settings: { theme: 3 } }).settings.theme).toBe('dark')
   })
 
   it('clamps numbers and validates every section', () => {
@@ -235,7 +236,7 @@ describe('sanitizeProgress', () => {
     expect(p.sessions[0]).toEqual({ at: 0, file: '123', mode: 'm'.repeat(20), answered: 0, correct: 0, xp: 0, bestStreak: 0 })
     expect(p.sessions[1]).toEqual(many[0])
     expect(p.drill).toEqual({ bestWpm: 400, bestAccuracy: 1, runs: 0 })
-    expect(p.settings).toEqual({ theme: 'amber', crt: true, reduceMotion: 'system', unlockAll: false, showTimer: false, hotkeys: true, aiExplain: true })
+    expect(p.settings).toEqual({ theme: 'dark', crt: true, reduceMotion: 'system', unlockAll: false, showTimer: false, hotkeys: true, aiExplain: true })
   })
 
   it('keeps a valid Progress unchanged (idempotent) and clamps xp at 1e9', () => {
@@ -248,7 +249,7 @@ describe('sanitizeProgress', () => {
       concepts: { dns: { seen: 8, correct: 6.5 }, tls: { seen: 3, correct: 3 } },
       sessions: [{ at: 5, file: 'a.pcap', mode: 'mixed', answered: 12, correct: 9, xp: 100, bestStreak: 4 }],
       drill: { bestWpm: 55, bestAccuracy: 0.97, runs: 3 },
-      settings: { theme: 'green' as const, crt: false, reduceMotion: 'on' as const, unlockAll: true, showTimer: false, hotkeys: false, aiExplain: true },
+      settings: { theme: 'paper' as const, crt: false, reduceMotion: 'on' as const, unlockAll: true, showTimer: false, hotkeys: false, aiExplain: true },
     }
     expect(sanitizeProgress(valid)).toEqual(valid)
     expect(sanitizeProgress(sanitizeProgress(valid))).toEqual(valid)
@@ -301,14 +302,14 @@ describe('useProgress import / export', () => {
     expect(store().importJSON(JSON.stringify({ xp: 500, concepts: { evil: { seen: 9, correct: 9 }, dns: { seen: 3, correct: 2 } }, settings: { theme: 'neon', crt: 'sure' } }))).toBeNull()
     expect(store().xp).toBe(500)
     expect(store().concepts).toEqual({ dns: { seen: 3, correct: 2 } })
-    expect(store().settings.theme).toBe('amber')
+    expect(store().settings.theme).toBe('dark')
     expect(store().settings.crt).toBe(true)
   })
 
   it('export then import round-trips', () => {
     store().record('dns', 1, 25, 1)
     store().record('tls', 0.5, 0, 0)
-    store().setSettings({ theme: 'green', hotkeys: false })
+    store().setSettings({ theme: 'paper', hotkeys: false })
     const json = store().exportJSON()
     const before = JSON.parse(json)
     expect(before.app).toBe('PacketQuest')
@@ -319,7 +320,7 @@ describe('useProgress import / export', () => {
     expect(store().answered).toBe(2)
     expect(store().correct).toBe(1)
     expect(store().concepts).toEqual({ dns: { seen: 1, correct: 1 }, tls: { seen: 1, correct: 0.5 } })
-    expect(store().settings).toMatchObject({ theme: 'green', hotkeys: false })
+    expect(store().settings).toMatchObject({ theme: 'paper', hotkeys: false })
     expect(JSON.parse(store().exportJSON())).toEqual(before)
   })
 })

@@ -9,7 +9,6 @@ import { useGame } from '../../store/game'
 import { useProgress } from '../../store/progress'
 import { useTicker } from '../hooks'
 import { Btn, Kbd, Meter } from '../term'
-import { SessionNav } from './SessionNav'
 
 const SECONDS = 60
 const WINDOW = 18
@@ -90,7 +89,6 @@ export function DrillView() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col text-[12.5px]">
-      <SessionNav />
       <div className="shrink-0 border-b border-line px-3 py-1.5 text-[11px]">
         <div className="flex items-center gap-2 uppercase tracking-[0.1em]">
           <span className="text-accent">j keystroke drill</span>

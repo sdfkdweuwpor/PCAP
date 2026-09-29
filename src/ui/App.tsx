@@ -7,7 +7,7 @@ import { useReduced } from './motion'
 import { UploadScreen } from './UploadScreen'
 import { Workspace } from './Workspace'
 
-const THEME_COLOR = { amber: '#0b0906', green: '#040a06', paper: '#ece5d4' }
+const THEME_COLOR = { dark: '#0b0906', paper: '#ece5d4' }
 
 export default function App() {
   const status = useCapture((s) => s.status)

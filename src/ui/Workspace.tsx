@@ -50,14 +50,14 @@ export function Workspace() {
 
 function Tabs<T extends string>({ tabs, value, onChange }: { tabs: { id: T; label: string }[]; value: T; onChange: (t: T) => void }) {
   return (
-    <div role="tablist" className="scroll-thin flex overflow-x-auto border-b border-line text-[12px]">
+    <div role="tablist" className="scroll-thin flex overflow-x-auto border-b border-line text-[13px]">
       {tabs.map((t) => (
         <button
           key={t.id}
           role="tab"
           aria-selected={value === t.id}
           onClick={() => onChange(t.id)}
-          className={`relative shrink-0 border-r border-line px-3 py-1 lowercase ${value === t.id ? 'bg-panel text-accent' : 'text-muted hover:bg-panel3 hover:text-fg'}`}
+          className={`relative shrink-0 border-r border-line px-4 py-1.5 lowercase ${value === t.id ? 'bg-panel text-accent' : 'text-muted hover:bg-panel3 hover:text-fg'}`}
         >
           {value === t.id && <motion.span layoutId="tab-mark" className="absolute inset-x-0 -bottom-px h-0.5 bg-accent" transition={softSpring} />}
           {t.label}

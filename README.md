@@ -5,7 +5,7 @@
 Aimed at Security+ / Network+ learners and early SOC analysts.
 
 - **Private by design.** Captures are parsed entirely in your browser, in a Web Worker. No packet data is uploaded anywhere; after page load the app makes no network requests (fonts are bundled locally).
-- **Analyst terminal UI.** Three retro monitor themes selectable in the header or config: amber phosphor (default), green phosphor, and paper (light, line-printer look). Optional CRT scanlines. IBM Plex Mono font throughout, VT323 for the wordmark; both bundled locally. Design rules in [docs/STYLE.md](docs/STYLE.md).
+- **Analyst terminal UI.** Two themes selectable in the header or config: dark (amber phosphor, the default) and paper (light, line-printer look). Optional CRT scanlines. IBM Plex Mono font throughout, VT323 for the wordmark; both bundled locally. Design rules in [docs/STYLE.md](docs/STYLE.md).
 - **Wireshark feel.** Packet list with Wireshark-style coloring, a collapsible details tree, and a hex/ASCII pane with two-way highlighting. Plus a display-filter bar, Conversations, Follow Stream and an animated flow (ladder) diagram.
 - **Ten game modes**, generated from whatever you load (see below), with XP, streaks, ranks, weak-area tracking and a session summary.
 

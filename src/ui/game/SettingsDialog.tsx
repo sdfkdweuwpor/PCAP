@@ -141,13 +141,13 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
                     <Choice
                       label="theme"
                       value={p.settings.theme}
-                      options={[['amber', 'amber'], ['green', 'green'], ['paper', 'paper']]}
+                      options={[['dark', 'dark'], ['paper', 'paper']]}
                       onChange={(v) => set({ theme: v as Settings['theme'] })}
                     />
                   </Row>
                   <Row k="crt scanlines">
                     <Choice label="crt scanlines" value={p.settings.crt ? 'on' : 'off'} options={onOff} onChange={(v) => set({ crt: v === 'on' })} dim={!phosphor} />
-                    {!phosphor && <span className="ml-2 text-faint">amber/green only</span>}
+                    {!phosphor && <span className="ml-2 text-faint">dark screen only</span>}
                   </Row>
                   <Row k="reduce motion">
                     <Choice

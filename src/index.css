@@ -1,9 +1,9 @@
 @import 'tailwindcss';
 
 /* ---------------------------------------------------------------- PacketQuest "analyst terminal" tokens
-   Three screens: amber phosphor (default), green phosphor, and paper (a light line-printer look). */
+   Two screens: dark (amber phosphor, the default) and paper (a light line-printer look). */
 :root,
-:root[data-screen='amber'] {
+:root[data-screen='dark'] {
   color-scheme: dark;
   --bg: #0b0906;
   --panel: #0f0c08;
@@ -38,44 +38,6 @@
   --p-clear: #ff7a3a;
   --p-err: #ff5a3c;
   --p-other: #b39668;
-  --row-alpha: 10%;
-}
-
-:root[data-screen='green'] {
-  color-scheme: dark;
-  --bg: #040a06;
-  --panel: #07100a;
-  --panel-2: #0b170f;
-  --panel-3: #112117;
-  --line: #1c3524;
-  --line-strong: #446c51;
-  --fg: #c8f5d2;
-  --muted: #7eb48b;
-  --faint: #5c8967;
-  --accent: #39ff88;
-  --accent-ink: #01140a;
-  --good: #d6ff4d;
-  --bad: #ff5f5f;
-  --warn: #ffd84d;
-  --focus: #9dffc4;
-  --glow: 0 0 6px color-mix(in srgb, var(--accent) 55%, transparent);
-  --scan: 1;
-  --shadow: 0 0 0 1px var(--line-strong), 0 18px 60px rgb(0 0 0 / 0.6);
-
-  --p-tcp: #b9a8ff;
-  --p-syn: #9db8a4;
-  --p-fin: #9db8a4;
-  --p-rst: #ff5f5f;
-  --p-udp: #6fc8ff;
-  --p-dns: #45f0d0;
-  --p-http: #d6ff4d;
-  --p-tls: #f39cff;
-  --p-arp: #ffe066;
-  --p-icmp: #ff9fcf;
-  --p-dhcp: #ffae57;
-  --p-clear: #ff8a3a;
-  --p-err: #ff5f5f;
-  --p-other: #7eb48b;
   --row-alpha: 10%;
 }
 
