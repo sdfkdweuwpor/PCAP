@@ -63,7 +63,11 @@ Requires Node 20+. Works in current Chrome, Firefox, Safari and Edge, on desktop
 | J | Keystroke Drill | 60-second typing drill on terms, filter fields and values from the loaded capture. Per-character feedback, live WPM/accuracy, best WPM saved, XP awarded (capped at 120). |
 | ⏱ | Blitz | 60 seconds, as many as you can |
 
-Ranks run **Recruit → Analyst (250 XP) → Hunter (700 XP) → Threat Hunter (1500 XP)**, and each rank unlocks modes (Settings → *Unlock all modes* for instructors). XP scales with difficulty tier, speed and streak; a hint halves it. Concepts you miss come up more often. Progress lives in `localStorage` (the app still works if storage is blocked) and can be exported/imported as JSON or reset.
+Ranks run **Recruit → Analyst (250 XP) → Hunter (700 XP) → Threat Hunter (1500 XP)**. Recruit unlocks A, B, E, G, H, J; Analyst unlocks C, D, I; Hunter unlocks F and Blitz. XP scales with difficulty tier, speed and streak; a hint halves it. Concepts you miss come up more often. Settings → *Unlock all modes* for instructors. Progress lives in `localStorage` (the app still works if storage is blocked) and can be exported/imported as JSON or reset.
+
+## Keyboard
+
+**Start screen:** `1–8` loads a sample, `o` opens the file picker. **Console:** letter keys start modes (`m` mixed, `a–j` modes A–J, `z` blitz); `1–4` answer multiple-choice; `↵` submits; `n` goes to the next case; `?` shows a hint (−50% XP); `/` focuses the display filter; `↑/↓` move the packet list; `←/→` step through Story Mode; `esc` restarts a drill.
 
 ## Samples
 
@@ -110,20 +114,34 @@ main    store/capture  keeps the file bytes; re-dissects any packet on demand
 ### Adding a question generator
 
 1. If the packet type is new, add a `Kind` to `src/game/knowledge.ts`, with `classify` logic, a `statement`, `means`, `matters`, `deeper` and `confusables`. Write the statement to be role-generic and similar in length to its confusables.
-2. Add a `Generator` to the relevant file in `src/game/generators/`: `{ id, mode, needs, generate(ctx) }`. Use `ctx.of(kind)`, `ctx.index.conversations`, `ctx.findField(no, key)`, and the `choice()` helper, which balances and shuffles options.
+2. Add a `Generator` to the relevant file in `src/game/generators/`: `{ id, mode, needs, generate(ctx) }`. Use `ctx.of(kind)`, `ctx.index.conversations`, `ctx.findField(no, key)`, and the `choice()` helper, which balances and shuffles options. **Typing mode** (mode H) generators live in `src/game/generators/typed.ts`. **Filter mode** (mode I) generators declare a `select(packet)` predicate and a `reference` filter string; any challenge whose reference doesn't match the predicate's frames exactly is dropped. See `src/game/generators/filters.ts`.
 3. Register it in `ALL_GENERATORS` (`src/game/engine.ts`). `tests/generators.test.ts` then runs it against every sample: it must fire on at least one, produce valid questions, grade its own answers as correct, and never leak a secret.
 
 ### Optional AI explain hook
 
 Off by default and not connected to any provider. A build can call `registerAiProvider(fn)` (`src/game/ai.ts`); once the learner also enables *AI explain* in Settings, an explanation card shows a clearly labelled **external** button. It sends only the already-masked text summary, never raw packets.
 
+## Working on this repo with Claude
+
+See [CLAUDE.md](CLAUDE.md) for codebase architecture and local setup. The project includes subagents for specialized tasks in `.claude/agents`:
+
+| Agent | Model | Role |
+| --- | --- | --- |
+| ui-reskin | Sonnet | Restyles UI components from a brief |
+| test-writer | Sonnet | Writes Vitest tests and reports src bugs instead of editing src |
+| browser-check | Haiku | Runs Playwright smoke tests and screenshots |
+| docs-writer | Haiku | Makes doc edits |
+
+Architecture and core logic stay with the main (Opus) session.
+
 ## Tests
 
-`npm test` runs 104 tests:
+`npm test` runs 7 files and 305 tests:
 
 - **Parser:** both endians, nanosecond timestamps, PCAPNG multi-interface with different resolutions, SPB, truncation and corruption handling.
 - **Dissectors:** field offsets checked against a hand-assembled SYN frame and constructed DNS/TLS/HTTP/FTP/DHCP/ARP/ICMP/IPv6/SLL/SLL2/null/VLAN frames; byte→field mapping.
 - **Filters:** semantics and error messages.
 - **Heuristics:** exactly the planted anomalies are found on each sample, with no false positives on the normal captures; Telnet credentials are reassembled from keystrokes.
 - **Generators:** at least 15 valid questions and at least 3 modes per sample, option balance, self-grading, secret masking, and weak-concept weighting.
+- **Typing modes:** gradeText normalisation and typo rules, every sample's text/filter questions self-grade, invalid filters score 0 without throwing, drill word lists and WPM maths.
 - **Performance:** a 20 MB capture indexes in under 10 s (about 1 s in practice).
