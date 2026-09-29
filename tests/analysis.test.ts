@@ -440,6 +440,16 @@ describe('failed logins', () => {
     expect(a.packets[0]).toBe(4)
     expect(a.packets[24]).toBe(28)
   })
+
+  it('reports only the burst that fired, not failures from hours earlier or later', () => {
+    const tl = new Timeline(700)
+    for (let i = 0; i < 3; i++) say(tl, client(2), 21, FTP530, 20) // frames 1-3: the burst
+    say(tl, client(2), 21, FTP530, 36000) // frame 4: ten hours later
+    const a = failed(tl.frames)!
+    expect(a.packets).toEqual([1, 2, 3])
+    expect(a.evidence.failures).toBe(3)
+    expect(a.detail).toMatch(/^3 FTP authentication failures .* in 40\.0 s/)
+  })
 })
 
 describe('anomaly evidence lists are not truncated', () => {
@@ -508,6 +518,31 @@ describe('followStream (TCP reassembly)', () => {
       { frame: 6, fromA: false, text: 'OK1' },
       { frame: 5, fromA: false, text: '2' },
     ])
+  })
+
+  it('keeps sequence order on a snaplen-truncated capture (advances by the IP-declared length, not the captured bytes)', () => {
+    // Frame 4 carries 8 payload bytes on the wire but only the first 4 were captured.
+    const cut = cli(1001, 5001, ack, 'AAAAaaaa')
+    const frames = [...HS, cut, srv(5001, 1009, ack, 'xy'), cli(1009, 5003, ack, 'BBBB')]
+    const { index, bytes } = indexOf(
+      writePcap(frames.map((data, i) => (i === 3 ? { ts: 1 + i, data: data.subarray(0, data.length - 4), origLen: data.length } : { ts: 1 + i, data }))),
+    )
+    expect(index.packets[3].facts.tcp).toMatchObject({ payloadLen: 4, segLen: 8 })
+    const conv = index.conversations.find((c) => c.proto === 'TCP')!
+    const out = followStream(conv, (no) => index.packets[no - 1], (p) => frameBytes(bytes, p)).map((x) => ({ frame: x.frame, text: dec.decode(x.bytes) }))
+    expect(out).toEqual([
+      { frame: 4, text: 'AAAA' },
+      { frame: 5, text: 'xy' },
+      { frame: 6, text: 'BBBB' },
+    ])
+  })
+
+  it('does not trust an IP length that overstates an untruncated frame', () => {
+    const bad = cli(1001, 5001, ack, 'AAAA').slice()
+    new DataView(bad.buffer).setUint16(14 + 2, 1400) // IPv4 total length far beyond the 58-byte frame
+    const { index } = indexOf(writePcap([...HS, bad].map((data, i) => ({ ts: 1 + i, data }))))
+    expect(index.packets[3].facts.tcp!.payloadLen).toBe(4)
+    expect(index.packets[3].facts.tcp!.segLen).toBeUndefined()
   })
 
   it('drops retransmitted bytes and trims overlapping ones', () => {

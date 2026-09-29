@@ -92,7 +92,8 @@ export interface Payload {
   dstPort: number
 }
 
-export function dissectTcp(ctx: DissectCtx, o: number, len: number): Payload {
+/** `declared` is the payload length the IP header claims, when the capture may have cut the frame short. */
+export function dissectTcp(ctx: DissectCtx, o: number, len: number, declared?: number): Payload {
   const b = ctx.b
   const sp = u16(b, o)
   const dp = u16(b, o + 2)
@@ -118,6 +119,9 @@ export function dissectTcp(ctx: DissectCtx, o: number, len: number): Payload {
   const flagStr = tcpFlagString(flags)
   const payloadOffset = o + hlen
   const payloadLen = Math.max(0, Math.min(len, b.length - o) - hlen)
+  // Sequence space actually sent: more than was captured only if the capture cut the frame, and never by more
+  // than the bytes it cut (a corrupt IP length must not make Follow Stream skip real data).
+  const segLen = payloadLen + Math.min(ctx.missing ?? 0, Math.max(0, (declared ?? len) - hlen - payloadLen))
 
   const src = ctx.src
   const dst = ctx.dst
@@ -224,6 +228,7 @@ export function dissectTcp(ctx: DissectCtx, o: number, len: number): Payload {
     flagStr,
     window: win,
     payloadLen,
+    ...(segLen > payloadLen ? { segLen } : {}),
     payloadOffset,
     options: opts,
     mss,

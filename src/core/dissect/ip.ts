@@ -27,6 +27,8 @@ export interface Transport {
   proto: number
   offset: number
   length: number
+  /** Payload length the header declares; exceeds `length` when the capture truncated the frame. */
+  declared?: number
   /** Only the first fragment carries a transport header. */
   fragmentOnly: boolean
 }
@@ -89,7 +91,7 @@ export function dissectIpv4(ctx: DissectCtx, o: number): Transport {
   } else {
     ctx.info = `${ipProtoName(proto)} ${src} → ${dst}`
   }
-  return { proto, offset: o + ihl, length: Math.max(0, end - (o + ihl)), fragmentOnly }
+  return { proto, offset: o + ihl, length: Math.max(0, end - (o + ihl)), declared: totalLen ? Math.max(0, totalLen - ihl) : undefined, fragmentOnly }
 }
 
 export function dissectIpv6(ctx: DissectCtx, o: number): Transport {
@@ -140,5 +142,5 @@ export function dissectIpv6(ctx: DissectCtx, o: number): Transport {
   ctx.dst = dst
   ctx.protocol = 'IPv6'
   ctx.info = `${ipProtoName(next)} ${src} → ${dst}`
-  return { proto: next, offset: p, length: Math.max(0, end - p), fragmentOnly }
+  return { proto: next, offset: p, length: Math.max(0, end - p), declared: payLen ? Math.max(0, o + 40 + payLen - p) : undefined, fragmentOnly }
 }

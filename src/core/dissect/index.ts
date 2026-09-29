@@ -44,6 +44,7 @@ export function dissectFrame(b: Uint8Array, meta: FrameMeta, opts: DissectOption
     info: '',
     color: 'other',
     tcpIsn: opts.tcpIsn,
+    missing: Math.max(0, meta.origLen - b.length),
   }
   const frame = layer(
     ctx,
@@ -128,7 +129,7 @@ function dissectNetwork(ctx: DissectCtx, next: NextLayer): void {
         dataLayer(ctx, t.offset, t.length, 'IP fragment data')
         return
       }
-      dissectTransport(ctx, t.proto, t.offset, t.length)
+      dissectTransport(ctx, t.proto, t.offset, t.length, t.declared)
       return
     }
     default:
@@ -136,11 +137,11 @@ function dissectNetwork(ctx: DissectCtx, next: NextLayer): void {
   }
 }
 
-function dissectTransport(ctx: DissectCtx, proto: number, o: number, len: number): void {
+function dissectTransport(ctx: DissectCtx, proto: number, o: number, len: number, declared?: number): void {
   if (len <= 0) return
   switch (proto) {
     case 6: {
-      const p = dissectTcp(ctx, o, len)
+      const p = dissectTcp(ctx, o, len, declared)
       if (p.length > 0) dissectTcpApp(ctx, p)
       return
     }

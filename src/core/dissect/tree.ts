@@ -12,6 +12,8 @@ export interface DissectCtx {
   color: ColorRule
   /** TCP initial sequence numbers keyed by flowKey(src,sport,dst,dport). Enables relative seq/ack. */
   tcpIsn?: Map<string, number>
+  /** Bytes of the frame the capture did not keep (snaplen), so declared lengths beyond the data can be trusted. */
+  missing?: number
 }
 
 export function field(

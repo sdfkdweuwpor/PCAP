@@ -264,13 +264,11 @@ describe('sanitizeProgress', () => {
     expect(Object.keys(sanitizeProgress({ concepts }).concepts).sort()).toEqual([...CONCEPTS].sort())
   })
 
-  // BUG (src/store/progress.ts line 86): `k in CONCEPT_LABEL` is true for inherited Object.prototype names, so
-  // "constructor" / "toString" / "hasOwnProperty" (and "__proto__") pass as known concepts. Only real concept keys should
-  // survive; use Object.hasOwn(CONCEPT_LABEL, k).
-  // Input: JSON.parse('{"concepts":{"constructor":{"seen":3,"correct":1},"toString":{"seen":2,"correct":1}}}')
-  // Expected: concepts = {}. Actual: { constructor: {seen:3, correct:1}, toString: {seen:2, correct:1} }.
-  // Impact: ModeMenu.tsx:72-79 / SettingsDialog.tsx:219 call CONCEPT_LABEL[c].toLowerCase(), which throws
-  // (Object.toLowerCase is not a function) for such a key, and the bad entry is persisted by importJSON.
+  // Regression (found by this audit, since fixed in src/store/progress.ts line 86): `k in CONCEPT_LABEL` was true for inherited
+  // Object.prototype names, so "constructor" / "toString" / "hasOwnProperty" passed as known concepts (the check is now
+  // Object.hasOwn). Input: JSON.parse('{"concepts":{"constructor":{"seen":3,"correct":1},"toString":{"seen":2,"correct":1}}}').
+  // Before the fix the result kept both keys, and ModeMenu.tsx:72-79 / SettingsDialog.tsx:219 then called
+  // CONCEPT_LABEL[c].toLowerCase(), which throws (Object.toLowerCase is not a function); importJSON also persisted them.
   it('drops concept keys that only exist on Object.prototype ("constructor", "toString", "__proto__")', () => {
     const raw = JSON.parse(
       '{"concepts":{"constructor":{"seen":3,"correct":1},"toString":{"seen":2,"correct":1},"hasOwnProperty":{"seen":4,"correct":4},"__proto__":{"seen":5,"correct":5},"dns":{"seen":2,"correct":1}}}',

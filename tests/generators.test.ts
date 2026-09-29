@@ -301,13 +301,13 @@ describe('makeOptions padding', () => {
     expect(padded).toBeGreaterThan(100)
   })
 
-  // BUG (low severity, src/game/options.ts makeOptions, ~lines 77-81): the pad added to the correct answer can make it
-  // identical to a distractor, and nothing re-checks uniqueness, although the doc comment promises "Returns null if
-  // balancing fails or options repeat". buildQuestionBank's validateQuestion() rejects such a question, but story-mode
-  // checks (says.ts via story.ts) are never validated, so a duplicate option could be shown there.
+  // Regression (found by this audit, since fixed in src/game/options.ts makeOptions): the pad added to the correct answer
+  // could make it identical to a distractor and nothing re-checked uniqueness, although the doc comment promises "Returns
+  // null if balancing fails or options repeat". validateQuestion() rejected such a question in the main bank, but story-mode
+  // checks (says.ts via story.ts) are never validated, so a duplicate option could have been shown there.
   // Input: correct 'The client opens a connection to the server.'; distractors 'The client opens a connection to the
   // server now.', 'The client closes a connection to the server.', 'Short.'
-  // Expected: null or four distinct options. Actual: two identical options 'The client opens a connection to the server now.'.
+  // Before the fix: two identical options 'The client opens a connection to the server now.'. Now: null.
   it('never returns two identical options (padding must not collide with a distractor)', () => {
     const r = makeOptions(
       'The client opens a connection to the server.',

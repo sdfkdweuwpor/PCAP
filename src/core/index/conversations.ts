@@ -149,6 +149,8 @@ export function followStream(
     frame: number
     seq: number
     bytes: Uint8Array
+    /** Sequence space the segment covers; longer than bytes when the capture truncated the frame. */
+    span: number
   }
   const state = new Map<boolean, { next: number | undefined; held: Seg[] }>([
     [true, { next: undefined, held: [] }],
@@ -165,10 +167,10 @@ export function followStream(
     const st = state.get(fromA)!
     st.next ??= seg.seq
     const behind = (st.next - seg.seq) | 0
-    if (behind >= seg.bytes.length) return // entirely old data
-    const bytes = behind > 0 ? seg.bytes.subarray(behind) : seg.bytes
-    out.push({ frame: seg.frame, fromA, bytes })
-    st.next = (seg.seq + Math.max(behind, 0) + bytes.length) >>> 0
+    if (behind >= seg.span) return // entirely old data
+    const skip = Math.max(behind, 0)
+    if (skip < seg.bytes.length) out.push({ frame: seg.frame, fromA, bytes: seg.bytes.subarray(skip) })
+    st.next = (seg.seq + seg.span) >>> 0
   }
   const drain = (fromA: boolean) => {
     const st = state.get(fromA)!
@@ -187,7 +189,8 @@ export function followStream(
     const u = p.facts.udp
     const off = t?.payloadOffset ?? u?.payloadOffset
     const len = t?.payloadLen ?? u?.payloadLen ?? 0
-    if (off === undefined || len <= 0) continue
+    const span = t ? (t.segLen ?? t.payloadLen) : len
+    if (off === undefined || span <= 0) continue
     const fb = frameBytes(p)
     const bytes = fb.subarray(off, Math.min(fb.length, off + len))
     if (!t) {
@@ -195,11 +198,12 @@ export function followStream(
       continue
     }
     const st = state.get(fromA)!
+    const seg = { frame: no, seq: t.seq, bytes, span }
     if (st.next !== undefined && ((t.seq - st.next) | 0) > 0) {
-      st.held.push({ frame: no, seq: t.seq, bytes }) // arrived early: wait for the gap to fill
+      st.held.push(seg) // arrived early: wait for the gap to fill
       continue
     }
-    deliver(fromA, { frame: no, seq: t.seq, bytes })
+    deliver(fromA, seg)
     drain(fromA)
   }
   // Flush whatever is still waiting (real loss in the capture): lowest sequence first, skipping the gap.

@@ -29,15 +29,16 @@ export function detectAnomalies(packets: PacketSummary[], convs: Conversation[])
   return out
 }
 
-/** Most events inside any window of `seconds` (times must be ascending). */
-function peakInWindow(times: number[], seconds: number): number {
-  let best = 0
+/** The busiest window of `seconds` (times ascending): its event count and first/last index. */
+function peakWindow(times: number[], seconds: number): { count: number; from: number; to: number } {
+  let best = { count: 0, from: 0, to: -1 }
   for (let i = 0, j = 0; j < times.length; j++) {
     while (times[j] - times[i] > seconds) i++
-    best = Math.max(best, j - i + 1)
+    if (j - i + 1 > best.count) best = { count: j - i + 1, from: i, to: j }
   }
   return best
 }
+const peakInWindow = (times: number[], seconds: number) => peakWindow(times, seconds).count
 
 function detectPortScan(packets: PacketSummary[], convs: Conversation[]): Anomaly | null {
   // Pure SYNs from one source to one target across many distinct destination ports, almost none of which turn
@@ -231,10 +232,12 @@ function detectFailedLogins(packets: PacketSummary[]): Anomaly | null {
     if (!g) groups.set(k, (g = { proto, frames: [] }))
     g.frames.push(p)
   }
-  let best: { proto: string; frames: PacketSummary[]; peak: number } | null = null
+  // Report the burst itself, not every failure that pair ever had.
+  let best: { proto: string; frames: PacketSummary[] } | null = null
   for (const g of groups.values()) {
-    const peak = peakInWindow(g.frames.map((p) => p.relTime), 300)
-    if (peak >= (g.proto === 'HTTP' ? 5 : 3) && (!best || peak > best.peak)) best = { ...g, peak }
+    const w = peakWindow(g.frames.map((p) => p.relTime), 300)
+    if (w.count >= (g.proto === 'HTTP' ? 5 : 3) && (!best || w.count > best.frames.length))
+      best = { proto: g.proto, frames: g.frames.slice(w.from, w.to + 1) }
   }
   if (!best) return null
   const all = best.frames

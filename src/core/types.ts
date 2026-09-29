@@ -87,6 +87,8 @@ export interface PacketFacts {
     flagStr: string
     window: number
     payloadLen: number
+    /** Payload length the IP header declares — more than payloadLen when the capture cut the frame short. */
+    segLen?: number
     payloadOffset: number
     options: string[]
     mss?: number
