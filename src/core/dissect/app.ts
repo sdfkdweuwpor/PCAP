@@ -89,10 +89,16 @@ export function dissectDhcp(ctx: DissectCtx, o: number, len: number): void {
         key = 'dhcp.option.dhcp'
       } else if ((code === 50 || code === 54 || code === 1 || code === 3) && olen >= 4) {
         value = ipv4(b, d)
-        if (code === 50) (facts.requestedIp = value), (key = 'dhcp.option.requested_ip_address')
-        if (code === 54) (facts.serverId = value), (key = 'dhcp.option.dhcp_server_id')
-        if (code === 3) (facts.router = value), (key = 'dhcp.option.router')
-        if (code === 1) key = 'dhcp.option.subnet_mask'
+        if (code === 50) {
+          facts.requestedIp = value
+          key = 'dhcp.option.requested_ip_address'
+        } else if (code === 54) {
+          facts.serverId = value
+          key = 'dhcp.option.dhcp_server_id'
+        } else if (code === 3) {
+          facts.router = value
+          key = 'dhcp.option.router'
+        } else key = 'dhcp.option.subnet_mask'
       } else if (code === 6) {
         const list: string[] = []
         for (let i = 0; i + 4 <= olen; i += 4) list.push(ipv4(b, d + i))
@@ -101,11 +107,17 @@ export function dissectDhcp(ctx: DissectCtx, o: number, len: number): void {
         key = 'dhcp.option.domain_name_server'
       } else if (code === 12 || code === 15) {
         value = ascii(b, d, olen)
-        if (code === 12) (facts.hostname = value), (key = 'dhcp.option.hostname')
+        if (code === 12) {
+          facts.hostname = value
+          key = 'dhcp.option.hostname'
+        }
       } else if ((code === 51 || code === 58 || code === 59) && olen === 4) {
         const secs2 = u32(b, d)
         value = `${secs2} s`
-        if (code === 51) (facts.leaseTime = secs2), (key = 'dhcp.option.ip_address_lease_time')
+        if (code === 51) {
+          facts.leaseTime = secs2
+          key = 'dhcp.option.ip_address_lease_time'
+        }
       }
       const opt = add(l, `Option: (${code}) ${name}`, key, value, p, 2 + olen)
       add(opt, 'Length', 'dhcp.option.length', olen, p + 1, 1)

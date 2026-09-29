@@ -19,7 +19,9 @@ self.onmessage = (e: MessageEvent<WorkerRequest>) => {
       last = now
       post({ type: 'progress', id, phase, fraction, packets })
     })
-    post({ type: 'done', id, index })
+    const CHUNK = 2000
+    for (let i = 0; i < index.packets.length; i += CHUNK) post({ type: 'chunk', id, packets: index.packets.slice(i, i + CHUNK) })
+    post({ type: 'done', id, index: { ...index, packets: [] } })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     const kind = err instanceof CaptureFormatError ? 'format' : /no packets/.test(message) ? 'empty' : 'internal'

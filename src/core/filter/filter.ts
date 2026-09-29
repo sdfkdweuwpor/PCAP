@@ -192,9 +192,13 @@ function tokenize(src: string): Tok[] {
     }
     if (c === '(') toks.push({ t: 'lp', v: c, pos: i++ })
     else if (c === ')') toks.push({ t: 'rp', v: c, pos: i++ })
-    else if (src.startsWith('&&', i)) (toks.push({ t: 'and', v: '&&', pos: i }), (i += 2))
-    else if (src.startsWith('||', i)) (toks.push({ t: 'or', v: '||', pos: i }), (i += 2))
-    else if (/^(==|!=|>=|<=)/.test(src.slice(i))) (toks.push({ t: 'op', v: src.slice(i, i + 2), pos: i }), (i += 2))
+    else if (src.startsWith('&&', i) || src.startsWith('||', i)) {
+      toks.push({ t: src[i] === '&' ? 'and' : 'or', v: src.slice(i, i + 2), pos: i })
+      i += 2
+    } else if (/^(==|!=|>=|<=)/.test(src.slice(i))) {
+      toks.push({ t: 'op', v: src.slice(i, i + 2), pos: i })
+      i += 2
+    }
     else if (c === '!') toks.push({ t: 'not', v: '!', pos: i++ })
     else if (c === '>' || c === '<') toks.push({ t: 'op', v: c, pos: i++ })
     else if (c === '=') throw new FilterError(`Use "==" for comparisons (found a single "=" at position ${i + 1}).`)
@@ -204,7 +208,7 @@ function tokenize(src: string): Tok[] {
       toks.push({ t: 'str', v: src.slice(i + 1, end), pos: i })
       i = end + 1
     } else {
-      const m = /^[A-Za-z0-9_.:/\-]+/.exec(src.slice(i))
+      const m = /^[A-Za-z0-9_.:/-]+/.exec(src.slice(i))
       if (!m) throw new FilterError(`Unexpected character "${c}" at position ${i + 1}.`)
       const w = m[0]
       const lw = w.toLowerCase()
@@ -395,6 +399,7 @@ function unknownFieldMessage(field: string): string {
   const lf = field.toLowerCase()
   const close = Object.keys(FIELDS)
     .filter((k) => k.startsWith(lf.split('.')[0]) || levenshtein(k, lf) <= 2)
+    .sort((a, b) => levenshtein(a, lf) - levenshtein(b, lf))
     .slice(0, 4)
   const hint = close.length ? ` Did you mean ${close.map((c) => `"${c}"`).join(', ')}?` : ' Try ip.addr, tcp.port, udp, dns, http, tls or tcp.flags.syn.'
   return `"${field}" isn't a field this filter understands.${hint}`

@@ -668,3 +668,23 @@ export function maskInfo(p: PacketSummary): string {
   if (!s) return p.info
   return p.info.split(s).join('•'.repeat(Math.min(8, s.length)))
 }
+
+/** Field keys that best illustrate a packet kind — used by "Show me" when a question names none. */
+export function keyFieldsFor(kind: Kind): string[] {
+  if (kind.startsWith('tcp')) return ['tcp.flags']
+  if (kind === 'dns-query') return ['dns.qry.name', 'dns.flags.response']
+  if (kind.startsWith('dns')) return ['dns.flags.rcode', 'dns.a', 'dns.aaaa']
+  if (kind === 'http-request') return ['http.request.method', 'http.request.uri']
+  if (kind.startsWith('http')) return ['http.response.code']
+  if (kind === 'tls-ch') return ['tls.handshake.extensions_server_name', 'tls.handshake.type']
+  if (kind === 'tls-sh') return ['tls.handshake.ciphersuite', 'tls.handshake.type']
+  if (kind.startsWith('tls')) return ['tls.record.content_type']
+  if (kind.startsWith('dhcp')) return ['dhcp.option.dhcp', 'dhcp.ip.your']
+  if (kind.startsWith('arp')) return ['arp.opcode', 'arp.src.hw_mac', 'arp.src.proto_ipv4']
+  if (kind.startsWith('icmp')) return ['icmp.type', 'icmp.code']
+  if (kind === 'ftp-user' || kind === 'ftp-pass' || kind === 'ftp-cmd') return ['ftp.request.command', 'ftp.request.arg']
+  if (kind.startsWith('ftp')) return ['ftp.response.code']
+  if (kind === 'ssh-banner') return ['ssh.protocol']
+  if (kind.startsWith('ntp')) return ['ntp.flags.mode']
+  return []
+}

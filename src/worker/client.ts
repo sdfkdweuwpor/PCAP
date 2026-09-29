@@ -47,15 +47,19 @@ export function parseCapture(bytes: Uint8Array, fileName: string, onProgress: (p
   }
   const id = nextId++
   const copy = bytes.slice().buffer
+  const packets: CaptureIndex['packets'] = []
   return new Promise((resolve, reject) => {
     const onMessage = (e: MessageEvent<WorkerResponse>) => {
       const m = e.data
       if (m.id !== id) return
       if (m.type === 'progress') onProgress({ phase: m.phase, fraction: m.fraction, packets: m.packets })
-      else {
+      else if (m.type === 'chunk') {
+        for (const p of m.packets) packets.push(p)
+        onProgress({ phase: 'analyzing', fraction: 1, packets: packets.length })
+      } else {
         w.removeEventListener('message', onMessage)
         w.removeEventListener('error', onError)
-        if (m.type === 'done') resolve(m.index)
+        if (m.type === 'done') resolve({ ...m.index, packets })
         else reject(new ParseError(m.message, m.kind))
       }
     }
