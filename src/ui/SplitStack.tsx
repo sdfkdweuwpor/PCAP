@@ -71,9 +71,11 @@ export function SplitStack({ defaults, labels, children }: { defaults: number[];
                 if (e.key === 'ArrowUp') nudge(i, -0.03)
                 else if (e.key === 'ArrowDown') nudge(i, 0.03)
               }}
-              className="group relative h-1.5 shrink-0 cursor-row-resize bg-line/60 hover:bg-accent/50"
+              className="group relative flex h-[7px] shrink-0 cursor-row-resize items-center justify-center border-y border-line bg-panel2 hover:bg-accent/30"
             >
-              <span className="absolute left-1/2 top-1/2 h-0.5 w-8 -translate-x-1/2 -translate-y-1/2 rounded bg-muted/60 group-hover:bg-accent" />
+              <span className="text-[8px] leading-none tracking-[0.3em] text-faint group-hover:text-accent" aria-hidden>
+                ═══
+              </span>
             </div>
           )}
         </div>

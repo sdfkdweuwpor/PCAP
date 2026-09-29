@@ -23,10 +23,12 @@ export function ConversationsTable() {
     return [...list].sort((a, b) => key(a) - key(b)).slice(0, 2000)
   }, [index, sort, proto])
 
+  const thc = 'px-2 py-1 text-left text-[10.5px] font-normal uppercase tracking-[0.12em] text-faint'
   const th = (k: SortKey, label: string) => (
-    <th className="px-2 py-1.5 text-left">
-      <button className={`uppercase tracking-wide ${sort === k ? 'text-accent' : ''}`} onClick={() => setSort(k)} aria-sort={sort === k ? 'descending' : 'none'}>
+    <th className={thc}>
+      <button className={`uppercase tracking-[0.12em] hover:text-fg ${sort === k ? 'text-accent' : ''}`} onClick={() => setSort(k)} aria-sort={sort === k ? 'descending' : 'none'}>
         {label}
+        {sort === k && <span aria-hidden> ↓</span>}
       </button>
     </th>
   )
@@ -39,100 +41,111 @@ export function ConversationsTable() {
         ? `arp`
         : `ip.addr == ${c.a.addr} && ip.addr == ${c.b.addr}`
 
+  const state = (c: Conversation): { text: string; tone: string } => {
+    if (!c.handshake) return { text: '—', tone: 'text-faint' }
+    if (c.handshake.ack) {
+      if (c.closedBy === 'rst') return { text: 'reset', tone: 'text-bad' }
+      if (c.closedBy === 'fin') return { text: 'closed', tone: 'text-muted' }
+      return { text: 'open', tone: 'text-good' }
+    }
+    if (c.handshake.synAck) return { text: 'half-open', tone: 'text-warn' }
+    if (c.closedBy === 'rst') return { text: 'refused', tone: 'text-bad' }
+    return { text: 'SYN only', tone: 'text-warn' }
+  }
+  const link = 'hover:text-accent'
+  const dot = (
+    <span aria-hidden className="px-1 text-faint">
+      ·
+    </span>
+  )
+
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center gap-2 border-b border-line bg-panel2 px-3 py-2 text-sm">
-        <span className="text-muted">Protocol</span>
-        <div className="flex gap-1">
+    <div className="flex h-full min-h-0 flex-col text-[12px]">
+      <div className="flex items-center gap-2 border-b border-line bg-panel2 px-2 py-1 text-[11px]">
+        <span className="text-[10.5px] uppercase tracking-[0.12em] text-faint">proto</span>
+        <div className="flex flex-wrap gap-x-1">
           {protos.map((p) => (
-            <button key={p} onClick={() => setProto(p)} className={`rounded px-2 py-0.5 text-xs ${proto === p ? 'bg-accent text-accent-ink' : 'border border-line text-muted'}`}>
-              {p}
+            <button key={p} onClick={() => setProto(p)} aria-pressed={proto === p} className={`px-1 ${proto === p ? 'bg-accent text-accent-ink' : 'text-muted hover:text-fg'}`}>
+              [{p}]
             </button>
           ))}
         </div>
-        <span className="ml-auto text-xs text-muted">{rows.length} conversations</span>
+        <span className="ml-auto tabular-nums text-faint">{rows.length} conversations</span>
       </div>
       <div className="scroll-thin min-h-0 flex-1 overflow-auto">
-        <table className="w-full min-w-[720px] font-mono text-xs">
-          <thead className="sticky top-0 bg-panel2 font-sans text-[11px] font-semibold text-muted">
+        <table className="w-full min-w-[720px] tabular-nums">
+          <thead className="sticky top-0 bg-panel2">
             <tr>
               {th('id', 'Stream')}
-              <th className="px-2 py-1.5 text-left uppercase tracking-wide">App</th>
-              <th className="px-2 py-1.5 text-left uppercase tracking-wide">Address A</th>
-              <th className="px-2 py-1.5 text-left uppercase tracking-wide">Address B</th>
+              <th className={thc}>App</th>
+              <th className={thc}>Address A</th>
+              <th className={thc}>Address B</th>
               {th('packets', 'Packets')}
               {th('bytes', 'Bytes')}
-              <th className="px-2 py-1.5 text-left uppercase tracking-wide">A→B / B→A</th>
+              <th className={thc}>A→B / B→A</th>
               {th('start', 'Rel start')}
               {th('duration', 'Duration')}
-              <th className="px-2 py-1.5 text-left uppercase tracking-wide">State</th>
+              <th className={thc}>State</th>
               <th />
             </tr>
           </thead>
           <tbody>
-            {rows.map((c) => (
-              <tr key={c.id} className="border-b border-line/50 hover:bg-panel3">
-                <td className="px-2 py-1">{c.id}</td>
-                <td className="px-2 py-1 font-semibold" style={{ color: protoVar(c.app) }}>
-                  {c.app}
-                </td>
-                <td className="px-2 py-1">{ep(c.a)}</td>
-                <td className="px-2 py-1">{ep(c.b)}</td>
-                <td className="px-2 py-1">{c.packets.length}</td>
-                <td className="px-2 py-1">{fmtBytes(c.bytes)}</td>
-                <td className="px-2 py-1 text-muted">
-                  {fmtBytes(c.bytesAtoB)} / {fmtBytes(c.bytesBtoA)}
-                </td>
-                <td className="px-2 py-1">{c.start.toFixed(3)}</td>
-                <td className="px-2 py-1">{(c.end - c.start).toFixed(3)}</td>
-                <td className="px-2 py-1">
-                  {c.handshake
-                    ? c.handshake.ack
-                      ? c.closedBy === 'rst'
-                        ? 'reset'
-                        : c.closedBy === 'fin'
-                          ? 'closed'
-                          : 'open'
-                      : c.handshake.synAck
-                        ? 'half-open'
-                        : c.closedBy === 'rst'
-                          ? 'refused'
-                          : 'SYN only'
-                    : '—'}
-                </td>
-                <td className="whitespace-nowrap px-2 py-1 font-sans">
-                  <button
-                    className="mr-1 rounded border border-line px-1.5 py-0.5 hover:border-accent hover:text-accent"
-                    onClick={() => {
-                      cap.setFlowConv(c.id)
-                      cap.setTab('flow')
-                    }}
-                  >
-                    Flow
-                  </button>
-                  {(c.proto === 'TCP' || c.proto === 'UDP') && (
+            {rows.map((c) => {
+              const st = state(c)
+              return (
+                <tr key={c.id} className="h-[22px] border-b border-line/50 hover:bg-panel3">
+                  <td className="px-2">{c.id}</td>
+                  <td className="px-2 font-semibold" style={{ color: protoVar(c.app) }}>
+                    {c.app}
+                  </td>
+                  <td className="px-2">{ep(c.a)}</td>
+                  <td className="px-2">{ep(c.b)}</td>
+                  <td className="px-2">{c.packets.length}</td>
+                  <td className="px-2">{fmtBytes(c.bytes)}</td>
+                  <td className="px-2 text-muted">
+                    {fmtBytes(c.bytesAtoB)} / {fmtBytes(c.bytesBtoA)}
+                  </td>
+                  <td className="px-2">{c.start.toFixed(3)}</td>
+                  <td className="px-2">{(c.end - c.start).toFixed(3)}</td>
+                  <td className={`px-2 ${st.tone}`}>{st.text}</td>
+                  <td className="whitespace-nowrap px-2 text-muted">
                     <button
-                      className="mr-1 rounded border border-line px-1.5 py-0.5 hover:border-accent hover:text-accent"
+                      className={link}
                       onClick={() => {
-                        cap.setStreamConv(c.id)
-                        cap.setTab('stream')
+                        cap.setFlowConv(c.id)
+                        cap.setTab('flow')
                       }}
                     >
-                      Stream
+                      flow
                     </button>
-                  )}
-                  <button
-                    className="rounded border border-line px-1.5 py-0.5 hover:border-accent hover:text-accent"
-                    onClick={() => {
-                      cap.setFilter(filterFor(c))
-                      cap.setTab('packets')
-                    }}
-                  >
-                    Filter
-                  </button>
-                </td>
-              </tr>
-            ))}
+                    {(c.proto === 'TCP' || c.proto === 'UDP') && (
+                      <>
+                        {dot}
+                        <button
+                          className={link}
+                          onClick={() => {
+                            cap.setStreamConv(c.id)
+                            cap.setTab('stream')
+                          }}
+                        >
+                          stream
+                        </button>
+                      </>
+                    )}
+                    {dot}
+                    <button
+                      className={link}
+                      onClick={() => {
+                        cap.setFilter(filterFor(c))
+                        cap.setTab('packets')
+                      }}
+                    >
+                      filter
+                    </button>
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>

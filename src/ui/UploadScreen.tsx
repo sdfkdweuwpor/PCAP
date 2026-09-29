@@ -1,228 +1,249 @@
-// Landing screen: privacy note, drag-and-drop / file picker, built-in samples, parsing animation.
+// Start screen: a load console. Drop/browse a capture, or load a sample from the listing (keys 1–8).
 
-import { AnimatePresence, motion, useMotionValue, useTransform, animate } from 'framer-motion'
-import { useEffect, useRef, useState } from 'react'
+import { motion } from 'framer-motion'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { parseContainer } from '../core/pcap/container'
+import { nextRank, rankFor } from '../game/scoring'
 import { SAMPLES } from '../samples/samples'
 import { ACCEPTED, useCapture } from '../store/capture'
 import { useProgress } from '../store/progress'
-import { IconAlert, IconLogo, IconMoon, IconShield, IconSun, IconUpload } from './icons'
-import { useReduced } from './motion'
-import { rankFor } from '../game/scoring'
+import { ThemeSwitch } from './Header'
+import { Btn, Frame, Kbd, Meter } from './term'
 
-const DIFF_COLOR = { Recruit: 'var(--good)', Analyst: 'var(--accent)', Hunter: 'var(--bad)' }
+const fmtSize = (n: number) => (n < 1024 ? `${n}B` : n < 1048576 ? `${(n / 1024).toFixed(1)}K` : `${(n / 1048576).toFixed(1)}M`)
 
 export function UploadScreen() {
   const { status, progress, error, loadFile, loadSample, fileName, sizeWarning } = useCapture()
   const [drag, setDrag] = useState(false)
   const input = useRef<HTMLInputElement>(null)
   const xp = useProgress((s) => s.xp)
-  const theme = useProgress((s) => s.settings.theme)
-  const setSettings = useProgress((s) => s.setSettings)
+  const answered = useProgress((s) => s.answered)
+  const correct = useProgress((s) => s.correct)
+  const last = useProgress((s) => s.sessions[0])
   const loading = status === 'loading'
 
-  const onFiles = (files: FileList | null) => {
-    const f = files?.[0]
-    if (f) void loadFile(f)
-  }
+  // Sample metadata for the listing (they are tiny, so building them up front is cheap).
+  const listing = useMemo(
+    () =>
+      SAMPLES.map((s) => {
+        const bytes = s.build()
+        return { ...s, size: bytes.length, packets: parseContainer(bytes).records.length }
+      }),
+    [],
+  )
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (loading || e.metaKey || e.ctrlKey || e.altKey || e.target instanceof HTMLInputElement) return
+      const n = Number(e.key)
+      if (n >= 1 && n <= SAMPLES.length) void loadSample(SAMPLES[n - 1].id)
+      if (e.key === 'o') input.current?.click()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [loading, loadSample])
+
+  const rank = rankFor(xp)
+  const next = nextRank(xp)
 
   return (
-    <motion.main
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0, y: -12 }}
-      className="min-h-full overflow-y-auto scroll-thin"
-    >
-      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-8 sm:py-10">
-        <header className="mb-8 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <IconLogo size={36} />
-            <div>
-              <h1 className="text-xl font-bold tracking-tight">PacketQuest</h1>
-              <p className="text-xs text-muted">Learn to read packet captures like an analyst</p>
-            </div>
+    <motion.main initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.12 }} className="scroll-thin min-h-full overflow-y-auto">
+      <div className="mx-auto max-w-[1100px] px-4 py-6 sm:px-6">
+        <header className="flex flex-wrap items-end justify-between gap-3 border-b border-line pb-3">
+          <div>
+            <h1 className="font-display text-[44px] leading-none text-accent glow">PACKETQUEST</h1>
+            <p className="mt-1 text-[12px] text-muted">packet-capture reading drills · v1.1 · runs entirely in this tab</p>
           </div>
-          <div className="flex items-center gap-2">
-            {xp > 0 && (
-              <span className="hidden rounded-full border border-line px-3 py-1 text-xs text-muted sm:inline">
-                {rankFor(xp).name} · {xp} XP
-              </span>
-            )}
-            <button
-              className="rounded-lg border border-line p-2 text-muted hover:text-fg"
-              onClick={() => setSettings({ theme: theme === 'dark' ? 'light' : 'dark' })}
-              aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
-            >
-              {theme === 'dark' ? <IconSun /> : <IconMoon />}
-            </button>
+          <div className="flex items-center gap-4 text-[12px]">
+            <span className="hidden text-muted sm:inline">
+              {rank.name.toUpperCase()} · {xp} XP {next && <Meter value={(xp - rank.minXp) / (next.minXp - rank.minXp)} width={10} className="ml-1" label="Progress to next rank" />}
+            </span>
+            <ThemeSwitch />
           </div>
         </header>
 
-        <section className="grid gap-6 lg:grid-cols-[1.1fr_1fr]">
-          <div>
-            <h2 className="text-3xl font-bold leading-tight tracking-tight sm:text-4xl">
-              Turn any capture into a <span className="text-accent">packet-reading game</span>.
-            </h2>
-            <p className="mt-3 max-w-xl text-muted">
-              Drop a Wireshark capture and PacketQuest builds quizzes from <em>your</em> traffic: find the handshake, decode
-              the DNS answer, spot the port scan. Every answer explains the exact bytes involved.
-            </p>
-            <div className="mt-5 flex items-start gap-3 rounded-xl border border-line bg-panel p-4">
-              <IconShield size={22} className="mt-0.5 shrink-0 text-good" />
-              <div className="text-sm">
-                <p className="font-semibold">Private by design</p>
-                <p className="text-muted">
-                  Your capture is parsed entirely in this browser tab (in a Web Worker). No packet data is ever uploaded or sent
-                  anywhere. Progress is stored only in this browser.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div
-            role="button"
-            tabIndex={0}
-            aria-label="Upload a capture file: drop it here or press Enter to browse"
-            onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && input.current?.click()}
-            onClick={() => !loading && input.current?.click()}
-            onDragOver={(e) => {
-              e.preventDefault()
-              setDrag(true)
-            }}
-            onDragLeave={() => setDrag(false)}
-            onDrop={(e) => {
-              e.preventDefault()
-              setDrag(false)
-              onFiles(e.dataTransfer.files)
-            }}
-            className={`relative flex min-h-64 cursor-pointer flex-col items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed p-6 text-center transition-colors ${
-              drag ? 'border-accent bg-accent/10' : 'border-line bg-panel hover:border-accent/60'
-            }`}
-          >
-            <input
-              ref={input}
-              type="file"
-              accept={ACCEPTED.join(',')}
-              className="hidden"
-              onChange={(e) => {
-                onFiles(e.target.files)
-                e.target.value = ''
+        <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+          <Frame title="Load capture" meta={ACCEPTED.join(' ')}>
+            <div
+              role="button"
+              tabIndex={0}
+              aria-label="Load a capture: drop a file here, or press Enter to browse"
+              onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && input.current?.click()}
+              onClick={() => !loading && input.current?.click()}
+              onDragOver={(e) => {
+                e.preventDefault()
+                setDrag(true)
               }}
-            />
-            <AnimatePresence mode="wait">
-              {loading ? (
-                <ParsingAnimation key="parse" fileName={fileName} packets={progress?.packets ?? 0} fraction={progress?.fraction ?? 0} phase={progress?.phase ?? 'reading'} />
-              ) : (
-                <motion.div key="idle" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96 }}>
-                  <motion.div
-                    animate={drag ? { y: -6, scale: 1.1 } : { y: 0, scale: 1 }}
-                    className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-2xl bg-accent/15 text-accent"
-                  >
-                    <IconUpload size={26} />
-                  </motion.div>
-                  <p className="font-semibold">Drop a .pcap / .pcapng / .cap here</p>
-                  <p className="mt-1 text-sm text-muted">or click to browse · classic PCAP & PCAPNG · Ethernet, Linux SLL/SLL2, raw IP, loopback</p>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        </section>
-
-        <AnimatePresence>
-          {error && status === 'error' && (
-            <motion.div
-              initial={{ opacity: 0, y: -6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              role="alert"
-              className="mt-6 flex items-start gap-3 rounded-xl border border-bad/50 bg-bad/10 p-4 text-sm"
+              onDragLeave={() => setDrag(false)}
+              onDrop={(e) => {
+                e.preventDefault()
+                setDrag(false)
+                const f = e.dataTransfer.files?.[0]
+                if (f) void loadFile(f)
+              }}
+              className={`m-3 flex min-h-[210px] cursor-pointer flex-col justify-between border border-dashed p-4 text-[13px] ${drag ? 'border-accent bg-accent/10' : 'border-line-strong hover:border-accent'}`}
             >
-              <IconAlert size={20} className="mt-0.5 shrink-0 text-bad" />
-              <div>
-                <p className="font-semibold">We couldn't open that capture</p>
-                <p className="text-muted">{error.message}</p>
-                <p className="mt-2">
-                  <button className="font-semibold text-accent underline underline-offset-2" onClick={() => void loadSample('web-basic')}>
-                    Load the "Basic web visit" sample instead
+              <input
+                ref={input}
+                type="file"
+                accept={ACCEPTED.join(',')}
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  e.target.value = ''
+                  if (f) void loadFile(f)
+                }}
+              />
+              {loading ? (
+                <LoadLog fileName={fileName} phase={progress?.phase ?? 'reading'} fraction={progress?.fraction ?? 0} packets={progress?.packets ?? 0} warning={sizeWarning} />
+              ) : (
+                <>
+                  <div>
+                    <p className="text-fg">
+                      {drag ? '> release to load' : '> drop a capture here'}
+                      <span className="cursor-block ml-1" aria-hidden />
+                    </p>
+                    <p className="mt-1 text-muted">
+                      or press <Kbd>o</Kbd> / click to browse. In Wireshark: File → Save As → pcapng.
+                    </p>
+                  </div>
+                  <dl className="mt-4 grid grid-cols-[6.5rem_1fr] gap-y-0.5 text-[12px]">
+                    <dt className="text-faint">containers</dt>
+                    <dd className="text-muted">pcap (LE/BE, µs/ns) · pcapng (SHB/IDB/EPB/SPB, multi-iface)</dd>
+                    <dt className="text-faint">link types</dt>
+                    <dd className="text-muted">ethernet+802.1Q · linux sll/sll2 · raw ip · bsd null</dd>
+                    <dt className="text-faint">decodes</dt>
+                    <dd className="text-muted">arp ip ipv6 icmp tcp udp dns http tls dhcp ftp telnet smtp pop3 imap ssh ntp snmp</dd>
+                  </dl>
+                </>
+              )}
+            </div>
+            {error && status === 'error' && (
+              <div role="alert" className="mx-3 mb-3 border-l-2 border-bad bg-bad/10 px-3 py-2 text-[12px]">
+                <p>
+                  <span className="font-semibold text-bad">ERR</span> {error.message}
+                </p>
+                <p className="mt-1 text-muted">
+                  try a known-good file instead:{' '}
+                  <button className="text-accent underline underline-offset-2" onClick={() => void loadSample('web-basic')}>
+                    load 01-web-basic.pcap
                   </button>
                 </p>
               </div>
-            </motion.div>
-          )}
-          {sizeWarning && loading && (
-            <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-4 rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm">
-              {sizeWarning}
-            </motion.p>
-          )}
-        </AnimatePresence>
+            )}
+          </Frame>
 
-        <section className="mt-10">
-          <div className="mb-3 flex items-baseline justify-between">
-            <h3 className="text-lg font-semibold">No capture handy? Try a sample</h3>
-            <span className="text-xs text-muted">Synthetic, generated in your browser</span>
-          </div>
-          <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {SAMPLES.map((s, i) => (
-              <motion.li key={s.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.03 * i }}>
-                <button
-                  disabled={loading}
-                  onClick={() => void loadSample(s.id)}
-                  className="group flex h-full w-full flex-col rounded-xl border border-line bg-panel p-4 text-left transition hover:-translate-y-0.5 hover:border-accent/60 disabled:opacity-50"
-                >
-                  <span className="flex items-center justify-between gap-2">
-                    <span className="font-semibold">{s.title}</span>
-                    <span
-                      className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
-                      style={{ color: DIFF_COLOR[s.difficulty], background: `color-mix(in srgb, ${DIFF_COLOR[s.difficulty]} 15%, transparent)` }}
-                    >
+          <Frame title="About" meta="local only">
+            <div className="space-y-3 p-3 text-[12.5px] leading-relaxed text-muted">
+              <p>
+                <span className="text-fg">PacketQuest</span> decodes a capture the way Wireshark does, then builds exercises from the packets it
+                finds: pick the frame, read the field, write the filter, type the value, find the attack.
+              </p>
+              <ul className="space-y-1">
+                <li>
+                  <span className="text-good">✓</span> parsed in a Web Worker; nothing is uploaded
+                </li>
+                <li>
+                  <span className="text-good">✓</span> no network requests after page load (fonts are bundled)
+                </li>
+                <li>
+                  <span className="text-good">✓</span> progress stays in this browser (export/import in settings)
+                </li>
+                <li>
+                  <span className="text-warn">!</span> cleartext passwords are masked until you reveal them
+                </li>
+              </ul>
+              {answered > 0 && (
+                <p className="border-t border-line pt-2 text-[12px]">
+                  <span className="text-faint">record</span> {answered} answered · {Math.round((correct / answered) * 100)}% correct
+                  {last && (
+                    <>
+                      {' '}
+                      · <span className="text-faint">last</span> {last.file} ({last.correct}/{last.answered})
+                    </>
+                  )}
+                </p>
+              )}
+            </div>
+          </Frame>
+        </div>
+
+        <Frame title="Samples" meta="$ ls -l samples/" className="mt-4">
+          <div className="scroll-thin overflow-x-auto">
+            <table className="w-full min-w-[720px] text-[12.5px]">
+              <thead className="text-left text-[11px] uppercase tracking-[0.12em] text-faint">
+                <tr className="border-b border-line">
+                  <th className="w-10 px-3 py-1.5 font-normal">key</th>
+                  <th className="px-2 py-1.5 font-normal">file</th>
+                  <th className="px-2 py-1.5 text-right font-normal">size</th>
+                  <th className="px-2 py-1.5 text-right font-normal">pkts</th>
+                  <th className="px-2 py-1.5 font-normal">level</th>
+                  <th className="px-2 py-1.5 font-normal">covers</th>
+                </tr>
+              </thead>
+              <tbody>
+                {listing.map((s, i) => (
+                  <tr
+                    key={s.id}
+                    tabIndex={0}
+                    onClick={() => !loading && void loadSample(s.id)}
+                    onKeyDown={(e) => e.key === 'Enter' && !loading && void loadSample(s.id)}
+                    className="group cursor-pointer border-b border-line/60 last:border-0 hover:bg-accent hover:text-accent-ink focus:bg-accent focus:text-accent-ink focus:outline-none"
+                  >
+                    <td className="px-3 py-1.5">
+                      <Kbd>{i + 1}</Kbd>
+                    </td>
+                    <td className="px-2 py-1.5 font-semibold">{s.fileName}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums text-muted group-hover:text-inherit group-focus:text-inherit">{fmtSize(s.size)}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums text-muted group-hover:text-inherit group-focus:text-inherit">{s.packets}</td>
+                    <td className={`px-2 py-1.5 lowercase group-hover:text-inherit group-focus:text-inherit ${s.difficulty === 'Recruit' ? 'text-good' : s.difficulty === 'Analyst' ? 'text-accent' : 'text-bad'}`}>
                       {s.difficulty}
-                    </span>
-                  </span>
-                  <span className="mt-2 text-sm text-muted">{s.learn}</span>
-                  <span className="mt-3 font-mono text-[11px] text-faint group-hover:text-accent">{s.fileName}</span>
-                </button>
-              </motion.li>
-            ))}
-          </ul>
-        </section>
+                    </td>
+                    <td className="px-2 py-1.5 text-muted group-hover:text-inherit group-focus:text-inherit">{s.learn}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Frame>
 
-        <footer className="mt-10 text-center text-xs text-faint">
-          Tip: in Wireshark, File → Export Specified Packets lets you save just the part of a capture you want to study.
+        <footer className="mt-4 flex flex-wrap justify-between gap-2 text-[11px] text-faint">
+          <span>tip: File → Export Specified Packets in Wireshark trims a capture to the part you want to study.</span>
+          <span>
+            <Btn className="py-0.5" onClick={() => input.current?.click()} disabled={loading}>
+              browse
+            </Btn>
+          </span>
         </footer>
       </div>
     </motion.main>
   )
 }
 
-function ParsingAnimation({ fileName, packets, fraction, phase }: { fileName: string; packets: number; fraction: number; phase: string }) {
-  const reduced = useReduced()
-  const count = useMotionValue(0)
-  const rounded = useTransform(count, (v) => Math.round(v).toLocaleString())
-  useEffect(() => {
-    const c = animate(count, packets, { duration: reduced ? 0 : 0.4 })
-    return () => c.stop()
-  }, [packets, count, reduced])
-  const label = phase === 'reading' ? 'Reading file' : phase === 'dissecting' ? 'Dissecting packets' : 'Building conversations & questions'
+function LoadLog({ fileName, phase, fraction, packets, warning }: { fileName: string; phase: string; fraction: number; packets: number; warning: string | null }) {
+  const steps = [
+    { key: 'reading', label: 'read container headers' },
+    { key: 'dissecting', label: 'dissect frames' },
+    { key: 'analyzing', label: 'index conversations, run heuristics' },
+  ]
+  const at = steps.findIndex((s) => s.key === phase)
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full max-w-sm" aria-live="polite">
-      <div className="relative mb-4 h-20 overflow-hidden rounded-lg border border-line bg-bg" aria-hidden>
-        {Array.from({ length: 7 }).map((_, i) => (
-          <motion.div
-            key={i}
-            className="absolute left-2 right-2 h-2 rounded"
-            style={{ top: 6 + i * 10, background: ['var(--p-dns)', 'var(--p-tcp)', 'var(--p-http)', 'var(--p-tls)', 'var(--p-arp)', 'var(--p-udp)', 'var(--p-syn)'][i], opacity: 0.55 }}
-            initial={{ x: '-110%' }}
-            animate={reduced ? { x: 0 } : { x: ['-110%', '0%', '0%', '110%'] }}
-            transition={reduced ? {} : { duration: 1.6, delay: i * 0.12, repeat: Infinity, times: [0, 0.25, 0.75, 1] }}
-          />
-        ))}
-      </div>
-      <p className="truncate font-mono text-sm">{fileName}</p>
-      <p className="mt-1 text-sm text-muted">
-        {label}… <motion.span className="font-mono text-fg">{rounded}</motion.span> packets
+    <div className="text-[12.5px]" aria-live="polite">
+      <p className="text-fg">
+        <span className="text-faint">$</span> open {fileName}
       </p>
-      <div className="mt-3 h-2 overflow-hidden rounded-full bg-panel3" role="progressbar" aria-valuenow={Math.round(fraction * 100)} aria-valuemin={0} aria-valuemax={100}>
-        <motion.div className="h-full origin-left rounded-full bg-accent" animate={{ scaleX: Math.max(0.03, fraction) }} transition={{ type: 'tween', duration: 0.2 }} />
-      </div>
-    </motion.div>
+      {warning && <p className="text-warn">! {warning}</p>}
+      {steps.map((s, i) =>
+        i <= at ? (
+          <p key={s.key} className="type-in text-muted">
+            <span className={i < at ? 'text-good' : 'text-accent'}>{i < at ? '[ ok ]' : '[ .. ]'}</span> {s.label}
+            {s.key === 'dissecting' && i <= at && <span className="text-fg"> · {packets.toLocaleString()} packets</span>}
+          </p>
+        ) : null,
+      )}
+      <p className="mt-3">
+        <Meter value={fraction} width={32} label="Parse progress" /> <span className="tabular-nums text-muted">{Math.round(fraction * 100)}%</span>
+      </p>
+    </div>
   )
 }

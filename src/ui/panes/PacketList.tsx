@@ -6,9 +6,8 @@ import { maskInfo } from '../../game/knowledge'
 import { useCapture } from '../../store/capture'
 import { useGame } from '../../store/game'
 import { protoVar } from '../colors'
-import { IconCheck, IconX } from '../icons'
 
-const ROW_H = 24
+const ROW_H = 22
 
 export function PacketList() {
   const index = useCapture((s) => s.index)!
@@ -59,8 +58,8 @@ export function PacketList() {
   const flashFor = (no: number) => (flash && flash.frames.includes(no) ? flash : null)
 
   return (
-    <div className="flex h-full min-h-0 flex-col font-mono text-[12px]">
-      <div className="grid shrink-0 grid-cols-[3.5rem_5.5rem_minmax(7rem,1fr)_minmax(7rem,1fr)_5rem_3.5rem_minmax(12rem,3fr)] gap-x-2 border-b border-line bg-panel2 px-2 py-1 font-sans text-[11px] font-semibold uppercase tracking-wide text-muted max-md:grid-cols-[3rem_minmax(6rem,1fr)_4.5rem_minmax(8rem,2fr)]">
+    <div className="flex h-full min-h-0 flex-col text-[12px]">
+      <div className="grid shrink-0 grid-cols-[4rem_5.5rem_minmax(7rem,1fr)_minmax(7rem,1fr)_5rem_3.5rem_minmax(12rem,3fr)] gap-x-2 border-b border-line px-2 py-0.5 text-[10.5px] uppercase tracking-[0.12em] text-faint max-md:grid-cols-[3.5rem_minmax(6rem,1fr)_4.5rem_minmax(8rem,2fr)]">
         <span>No.</span>
         <span className="max-md:hidden">Time</span>
         <span>Source</span>
@@ -78,7 +77,7 @@ export function PacketList() {
         onKeyDown={onKey}
         className="scroll-thin relative min-h-0 flex-1 overflow-auto outline-none"
       >
-        {rows.length === 0 && <p className="p-4 font-sans text-sm text-muted">No packets match this filter.</p>}
+        {rows.length === 0 && <p className="p-3 text-[12px] text-muted">-- 0 frames match this filter --</p>}
         <div style={{ height: v.getTotalSize(), position: 'relative', minWidth: '100%' }}>
           {v.getVirtualItems().map((vi) => {
             const no = rows[vi.index]
@@ -102,31 +101,37 @@ export function PacketList() {
                   parent.current?.focus({ preventScroll: true })
                 }}
                 onDoubleClick={() => pickMode && !multiMode && useGame.getState().submit({ kind: 'pick', packets: [no] })}
-                className={`absolute left-0 right-0 grid cursor-default grid-cols-[3.5rem_5.5rem_minmax(7rem,1fr)_minmax(7rem,1fr)_5rem_3.5rem_minmax(12rem,3fr)] items-center gap-x-2 whitespace-nowrap px-2 max-md:grid-cols-[3rem_minmax(6rem,1fr)_4.5rem_minmax(8rem,2fr)] rc-${p.color} ${
-                  isSel ? 'bg-accent! text-accent-ink!' : 'row-tint hover:brightness-125'
-                } ${f?.kind === 'wrong' ? 'row-shake' : ''} ${pulse ? 'row-pulse' : ''} ${dim ? 'opacity-40' : ''}`}
-                style={{ top: vi.start, height: ROW_H, ['--pulse' as string]: pulse, borderLeft: `3px solid var(--rc)` }}
+                className={`absolute left-0 right-0 grid cursor-default grid-cols-[4rem_5.5rem_minmax(7rem,1fr)_minmax(7rem,1fr)_5rem_3.5rem_minmax(12rem,3fr)] items-center gap-x-2 whitespace-nowrap px-2 max-md:grid-cols-[3.5rem_minmax(6rem,1fr)_4.5rem_minmax(8rem,2fr)] rc-${p.color} ${
+                  isSel ? 'bg-accent! text-accent-ink!' : 'row-tint hover:bg-panel3'
+                } ${f?.kind === 'wrong' ? 'row-shake' : ''} ${pulse ? 'row-pulse' : ''} ${dim ? 'opacity-35' : ''}`}
+                style={{ top: vi.start, height: ROW_H, ['--pulse' as string]: pulse, borderLeft: `2px solid var(--rc)` }}
               >
-                <span className="flex items-center gap-1">
+                <span className="flex items-center gap-1 tabular-nums">
                   {multiMode && (
-                    <span
-                      className={`grid h-3.5 w-3.5 place-items-center rounded-sm border ${inMulti ? 'border-accent bg-accent text-accent-ink' : 'border-muted'}`}
-                      aria-hidden
-                    >
-                      {inMulti && <IconCheck size={10} strokeWidth={3} />}
+                    <span aria-hidden className={inMulti ? 'text-inherit' : 'text-faint'}>
+                      {inMulti ? '[x]' : '[ ]'}
                     </span>
                   )}
-                  {f?.kind === 'correct' || f?.kind === 'answer' ? <IconCheck size={12} className="text-good" aria-label="correct" /> : null}
-                  {f?.kind === 'wrong' ? <IconX size={12} className="text-bad" aria-label="incorrect" /> : null}
+                  {f?.kind === 'correct' || f?.kind === 'answer' ? (
+                    <span className={isSel ? '' : 'text-good'} aria-label="correct">
+                      ✓
+                    </span>
+                  ) : null}
+                  {f?.kind === 'wrong' ? (
+                    <span className={isSel ? '' : 'text-bad'} aria-label="incorrect">
+                      ✗
+                    </span>
+                  ) : null}
+                  {!multiMode && !f && <span aria-hidden className="w-2">{isSel ? '▸' : ''}</span>}
                   {no}
                 </span>
-                <span className="max-md:hidden">{p.relTime.toFixed(6)}</span>
+                <span className="tabular-nums max-md:hidden">{p.relTime.toFixed(6)}</span>
                 <span className="truncate">{p.src}</span>
                 <span className="truncate max-md:hidden">{p.dst}</span>
                 <span className="truncate font-semibold" style={isSel ? undefined : { color: protoVar(p.protocol) }}>
                   {p.protocol}
                 </span>
-                <span className="max-md:hidden">{p.origLen}</span>
+                <span className="tabular-nums max-md:hidden">{p.origLen}</span>
                 <span className="truncate">{reveal ? p.info : maskInfo(p)}</span>
               </div>
             )

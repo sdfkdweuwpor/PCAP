@@ -45,8 +45,8 @@ export interface Rank {
 }
 
 export const RANKS: Rank[] = [
-  { name: 'Recruit', minXp: 0, unlocks: ['pick', 'says', 'order', 'story'], blurb: 'Identify protocols, directions, requests and responses.' },
-  { name: 'Analyst', minXp: 250, unlocks: ['means', 'field'], blurb: 'Read flags, handshakes, record types and status codes.' },
+  { name: 'Recruit', minXp: 0, unlocks: ['pick', 'says', 'order', 'story', 'type', 'drill'], blurb: 'Identify protocols, directions, requests and responses.' },
+  { name: 'Analyst', minXp: 250, unlocks: ['means', 'field', 'filter'], blurb: 'Read flags, handshakes, record types and status codes.' },
   { name: 'Hunter', minXp: 700, unlocks: ['anomaly', 'blitz'], blurb: 'Hunt anomalies and attack patterns.' },
   { name: 'Threat Hunter', minXp: 1500, unlocks: [], blurb: 'You read captures like a seasoned SOC analyst.' },
 ]

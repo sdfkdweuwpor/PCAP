@@ -1,6 +1,7 @@
 // Game session state: deck, current question, grading, XP/streaks, story mode and blitz.
 
 import { create } from 'zustand'
+import { drillXp } from '../game/drill'
 import { buildDeck, grade } from '../game/engine'
 import { rankFor, STREAK_MILESTONES, unlockedModes, xpFor, type Rank, type XpBreakdown } from '../game/scoring'
 import type { Answer, Concept, Grade, Mode, Question } from '../game/types'
@@ -25,7 +26,7 @@ export interface Feedback {
 
 interface GameStore {
   playMode: PlayMode | null
-  phase: 'menu' | 'question' | 'feedback' | 'summary' | 'story'
+  phase: 'menu' | 'question' | 'feedback' | 'summary' | 'story' | 'drill'
   deck: Question[]
   idx: number
   questionStart: number
@@ -55,9 +56,11 @@ interface GameStore {
   setFieldPick: (p: GameStore['fieldPick']) => void
   storyGo: (i: number) => void
   storyCheck: (choice: number) => void
+  /** Records a finished keystroke drill; returns XP awarded. */
+  finishDrill: (wpm: number, accuracy: number) => number
 }
 
-const ALL_MODES: Mode[] = ['pick', 'says', 'means', 'field', 'order', 'anomaly']
+const ALL_MODES: Mode[] = ['pick', 'says', 'means', 'field', 'order', 'anomaly', 'type', 'filter']
 export const BLITZ_SECONDS = 60
 
 function focusFor(q: Question | null) {
@@ -101,6 +104,11 @@ export const useGame = create<GameStore>((set, get) => ({
     const bank = useCapture.getState().bank
     if (!bank) return
     const now = Date.now()
+    if (mode === 'drill') {
+      useCapture.getState().lock(null)
+      set({ playMode: 'drill', phase: 'drill', results: [], sessionXp: 0, sessionStart: now })
+      return
+    }
     if (mode === 'story') {
       set({ playMode: 'story', phase: 'story', storyIdx: 0, storyChecked: null, results: [], sessionXp: 0, streak: 0, sessionBest: 0, sessionStart: now })
       const first = bank.story.steps[0]
@@ -111,7 +119,7 @@ export const useGame = create<GameStore>((set, get) => ({
     const unlocked = unlockedModes(prog.xp, prog.settings.unlockAll)
     const modes =
       mode === 'mixed' || mode === 'blitz'
-        ? ALL_MODES.filter((m) => unlocked.has(m) && (m !== 'order' || mode !== 'blitz'))
+        ? ALL_MODES.filter((m) => unlocked.has(m) && (mode !== 'blitz' || (m !== 'order' && m !== 'filter')))
         : [mode]
     const deck = buildDeck(bank, {
       modes,
@@ -148,7 +156,7 @@ export const useGame = create<GameStore>((set, get) => ({
     const q = s.current()
     if (!q || s.phase !== 'question') return
     const layers = q.kind === 'field' ? getDissection(q.packet)?.layers : undefined
-    const g = grade(q, a, layers)
+    const g = grade(q, a, layers, useCapture.getState().index ?? undefined)
     const seconds = (Date.now() - s.questionStart) / 1000
     const streak = g.score >= 1 ? s.streak + 1 : 0
     const xp = xpFor({ tier: q.tier, score: g.score, seconds, streak: s.streak, hintUsed: s.hintUsed })
@@ -232,6 +240,15 @@ export const useGame = create<GameStore>((set, get) => ({
     set({ storyIdx: idx, storyChecked: null })
     const st = steps[idx]
     if (st) useCapture.getState().showMe(st.packet)
+  },
+
+  finishDrill(wpm, accuracy) {
+    const xp = drillXp({ wpm, accuracy, words: 0, errors: 0 })
+    const before = rankFor(useProgress.getState().xp)
+    useProgress.getState().recordDrill(wpm, accuracy, xp)
+    const after = rankFor(useProgress.getState().xp)
+    set((s) => ({ sessionXp: s.sessionXp + xp, levelUp: after.name !== before.name ? after : s.levelUp }))
+    return xp
   },
 
   storyCheck(choice) {

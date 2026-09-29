@@ -6,7 +6,6 @@ import { memo, useEffect, useMemo, useState } from 'react'
 import type { Field } from '../../core/types'
 import { getDissection, useCapture } from '../../store/capture'
 import { useGame } from '../../store/game'
-import { IconChevron, IconEye, IconEyeOff } from '../icons'
 
 const MASK = '••••••••'
 
@@ -58,7 +57,7 @@ export function PacketDetails() {
   const hasSecret = useMemo(() => (d ? JSON.stringify(d.layers).includes('"secret":true') : false), [d])
   const telnetCred = selected ? useCapture.getState().index?.packets[selected - 1].facts.creds : undefined
 
-  if (!d) return <p className="p-4 text-sm text-muted">Select a packet to see its protocol layers.</p>
+  if (!d) return <p className="p-3 text-[12px] text-faint">-- select a frame to decode it --</p>
 
   const toggle = (id: string) =>
     setOpen((prev) => {
@@ -69,18 +68,14 @@ export function PacketDetails() {
     })
 
   return (
-    <div className="scroll-thin h-full overflow-auto p-1 font-mono text-[12px]" role="tree" aria-label={`Packet ${selected} details`}>
+    <div className="scroll-thin h-full overflow-auto p-1 text-[12px] leading-[1.45]" role="tree" aria-label={`Packet ${selected} details`}>
       {(hasSecret || telnetCred?.secret) && (
-        <div className="mb-1 flex items-center justify-between gap-2 rounded-md border border-[var(--p-clear)]/50 bg-[var(--p-clear)]/10 px-2 py-1 font-sans text-xs">
+        <div className="mb-1 flex items-center justify-between gap-2 border-l-2 border-[var(--p-clear)] bg-[var(--p-clear)]/10 px-2 py-0.5 text-[11.5px]">
           <span>
-            <strong className="text-[var(--p-clear)]">Teaching moment:</strong> this packet carries a credential in cleartext.
+            <span className="text-[var(--p-clear)]">!! cleartext credential</span> <span className="text-muted">— anyone on the path can read these bytes</span>
           </span>
-          <button
-            className="flex shrink-0 items-center gap-1 rounded border border-line px-2 py-0.5 hover:bg-panel3"
-            onClick={() => useCapture.getState().setReveal(!reveal)}
-            aria-pressed={reveal}
-          >
-            {reveal ? <IconEyeOff size={13} /> : <IconEye size={13} />} {reveal ? 'Hide' : 'Reveal'}
+          <button className="shrink-0 border border-line px-2 text-[11px] uppercase tracking-[0.08em] hover:border-accent" onClick={() => useCapture.getState().setReveal(!reveal)} aria-pressed={reveal}>
+            {reveal ? 'mask' : 'reveal'}
           </button>
         </div>
       )}
@@ -137,9 +132,9 @@ const Node = memo(function Node({ f, id, depth, open, toggle, target, sweepToken
   return (
     <div role="treeitem" aria-expanded={hasKids ? isOpen : undefined} aria-level={depth + 1} aria-selected={isSel}>
       <div
-        className={`group relative flex cursor-default items-start gap-1 rounded px-1 py-[1px] ${
-          isSel ? 'bg-accent/25 ring-1 ring-accent' : isHover ? 'bg-accent/15' : 'hover:bg-panel3'
-        } ${f.warn ? 'text-[var(--p-clear)]' : ''}`}
+        className={`group relative flex cursor-default items-start gap-1 px-1 ${
+          isSel ? 'bg-accent text-accent-ink' : isHover ? 'bg-accent/15' : 'hover:bg-panel3'
+        } ${f.warn && !isSel ? 'text-[var(--p-clear)]' : ''}`}
         style={{ paddingLeft: depth * 14 + 4 }}
         onMouseEnter={() => f.length > 0 && useCapture.getState().setHover({ offset: f.offset, length: f.length }, f.key ?? null)}
         onMouseLeave={() => useCapture.getState().setHover(null)}
@@ -157,14 +152,14 @@ const Node = memo(function Node({ f, id, depth, open, toggle, target, sweepToken
         {isTarget && (
           <motion.span
             key={sweepToken}
-            className="pointer-events-none absolute inset-0 rounded bg-accent/40"
+            className="pointer-events-none absolute inset-0 bg-accent/40"
             initial={{ opacity: 0 }}
             animate={{ opacity: [0, 1, 0.35] }}
             transition={{ duration: 1.1, times: [0, 0.3, 1] }}
           />
         )}
         <button
-          className={`mt-[2px] grid h-3.5 w-3.5 shrink-0 place-items-center text-muted ${hasKids ? '' : 'invisible'}`}
+          className={`w-3 shrink-0 text-left ${isSel ? '' : 'text-faint'} ${hasKids ? '' : 'invisible'}`}
           onClick={(e) => {
             e.stopPropagation()
             toggle(id)
@@ -172,16 +167,14 @@ const Node = memo(function Node({ f, id, depth, open, toggle, target, sweepToken
           aria-label={isOpen ? 'Collapse' : 'Expand'}
           tabIndex={-1}
         >
-          <motion.span animate={{ rotate: isOpen ? 90 : 0 }} transition={{ duration: 0.15 }} className="grid place-items-center">
-            <IconChevron size={12} />
-          </motion.span>
+          {isOpen ? '-' : '+'}
         </button>
         <span className={`relative break-all ${depth === 0 ? 'font-semibold' : ''}`}>
           {name}
           {value !== undefined && value !== '' && (
             <>
-              <span className="text-muted">: </span>
-              <span className={secret ? 'tracking-widest text-[var(--p-clear)]' : ''}>{value}</span>
+              <span className={isSel ? '' : 'text-faint'}>: </span>
+              <span className={secret && !isSel ? 'tracking-widest text-[var(--p-clear)]' : ''}>{value}</span>
             </>
           )}
         </span>

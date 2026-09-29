@@ -1,75 +1,78 @@
+// Rank-up screen: a bordered clearance notice with a short typewriter reveal (no confetti).
+
 import { AnimatePresence, motion } from 'framer-motion'
 import { useEffect, useRef } from 'react'
 import { MODE_INFO, type Mode } from '../../game/types'
 import { useGame } from '../../store/game'
-import { Confetti } from './Confetti'
+import { useReduced } from '../motion'
+import { Btn } from '../term'
+
+const UNLOCK_TEXT: Record<string, string> = { blitz: 'blitz · 60s speed round' }
+const unlockLine = (m: string) => UNLOCK_TEXT[m] ?? `${MODE_INFO[m as Mode].letter.toLowerCase()} · ${MODE_INFO[m as Mode].name.toLowerCase()}`
 
 export function LevelUpOverlay() {
   const rank = useGame((s) => s.levelUp)
-  const btn = useRef<HTMLButtonElement>(null)
+  const box = useRef<HTMLDivElement>(null)
   const dismiss = useGame((s) => s.dismissLevelUp)
+  const reduced = useReduced()
 
   useEffect(() => {
     if (!rank) return
-    btn.current?.focus()
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && dismiss()
+    box.current?.querySelector('button')?.focus()
+    const onKey = (e: KeyboardEvent) => (e.key === 'Escape' || e.key === 'Enter') && dismiss()
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [rank, dismiss])
+
+  // Each line types in after the previous one; nothing animates when motion is reduced.
+  const type = (n: number) => (reduced ? {} : { animationDelay: `${n * 260}ms` })
+  const cls = reduced ? '' : 'type-in'
 
   return (
     <AnimatePresence>
       {rank && (
         <motion.div
-          className="fixed inset-0 z-[100] grid place-items-center bg-bg/80 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-[100] grid place-items-center bg-bg/70 p-4"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
+          transition={{ duration: reduced ? 0 : 0.1 }}
           role="dialog"
           aria-modal="true"
           aria-labelledby="lvl-title"
           onClick={dismiss}
         >
-          <motion.div
-            className="relative w-full max-w-sm overflow-hidden rounded-2xl border border-accent/60 bg-panel p-6 text-center shadow-[var(--shadow)]"
-            initial={{ scale: 0.7, y: 30, opacity: 0 }}
-            animate={{ scale: 1, y: 0, opacity: 1 }}
-            exit={{ scale: 0.9, opacity: 0 }}
-            transition={{ type: 'spring', stiffness: 260, damping: 18 }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <motion.div
-              className="pointer-events-none absolute inset-0 opacity-30"
-              style={{ background: 'radial-gradient(circle at 50% 0%, var(--accent), transparent 60%)' }}
-              animate={{ opacity: [0.15, 0.4, 0.25] }}
-              transition={{ duration: 1.6 }}
-            />
-            <p className="relative text-xs font-semibold uppercase tracking-[0.2em] text-muted">Rank up</p>
-            <motion.h2
-              id="lvl-title"
-              className="relative mt-1 text-3xl font-black text-accent"
-              initial={{ letterSpacing: '0.4em', opacity: 0 }}
-              animate={{ letterSpacing: '0em', opacity: 1 }}
-              transition={{ delay: 0.15, duration: 0.5 }}
-            >
-              {rank.name}
-            </motion.h2>
-            <p className="relative mt-2 text-sm text-muted">{rank.blurb}</p>
+          <div ref={box} className="w-full max-w-sm border border-accent bg-panel p-5 text-[12px] shadow-[var(--shadow)]" onClick={(e) => e.stopPropagation()}>
+            <p className={`text-center text-[11px] text-faint ${cls}`} style={type(0)}>
+              -- clearance upgraded --
+            </p>
+            <h2 id="lvl-title" className={`mt-3 text-center font-display text-[56px] leading-none text-accent glow ${cls}`} style={type(1)}>
+              {rank.name.toLowerCase()}
+            </h2>
+            <p className={`mt-3 text-center text-muted ${cls}`} style={type(2)}>
+              {rank.blurb}
+            </p>
             {rank.unlocks.length > 0 && (
-              <div className="relative mt-4 rounded-lg border border-line bg-panel2 p-3 text-left text-sm">
-                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">Unlocked</p>
-                {rank.unlocks.map((m) => (
-                  <motion.p key={m} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.4 }} className="font-semibold">
-                    {m === 'blitz' ? 'Blitz — 60-second speed round' : `${MODE_INFO[m as Mode].letter} · ${MODE_INFO[m as Mode].name}`}
-                  </motion.p>
-                ))}
+              <div className="mt-4 border-t border-line pt-3">
+                <p className="mb-1 text-[11px] uppercase tracking-[0.12em] text-faint">unlocked</p>
+                <ul>
+                  {rank.unlocks.map((m, i) => (
+                    <li key={m} className={`text-fg ${cls}`} style={type(3 + i)}>
+                      <span className="text-good" aria-hidden>
+                        +{' '}
+                      </span>
+                      {unlockLine(m)}
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
-            <button ref={btn} onClick={dismiss} className="relative mt-5 w-full rounded-lg bg-accent py-2 font-semibold text-accent-ink">
-              Continue
-            </button>
-            <Confetti trigger={1} badge={false} />
-          </motion.div>
+            <div className="mt-5 flex justify-center">
+              <Btn tone="primary" hotkey="↵" onClick={dismiss}>
+                continue
+              </Btn>
+            </div>
+          </div>
         </motion.div>
       )}
     </AnimatePresence>

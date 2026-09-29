@@ -61,12 +61,12 @@ export function StreamView() {
   const bBytes = segs.filter((s) => !s.fromA).reduce((n, s) => n + s.bytes.length, 0)
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex flex-wrap items-center gap-2 border-b border-line bg-panel2 px-3 py-2 text-sm">
+    <div className="flex h-full min-h-0 flex-col text-[12px]">
+      <div className="flex flex-wrap items-center gap-2 border-b border-line bg-panel2 px-2 py-1 text-[11px]">
         <select
           value={convId ?? ''}
           onChange={(e) => useCapture.getState().setStreamConv(Number(e.target.value))}
-          className="max-w-[24rem] rounded-md border border-line bg-panel px-2 py-1 font-mono text-xs"
+          className="max-w-[24rem] border border-line-strong bg-panel px-1 py-0.5 text-[11px] text-fg"
           aria-label="Stream to follow"
         >
           {candidates.slice(0, 500).map((c) => (
@@ -75,32 +75,41 @@ export function StreamView() {
             </option>
           ))}
         </select>
-        <div className="flex gap-1" role="radiogroup" aria-label="Show as">
+        <div className="flex gap-x-1" role="radiogroup" aria-label="Show as">
           {(['ascii', 'hex'] as View[]).map((v) => (
-            <button key={v} role="radio" aria-checked={view === v} onClick={() => setView(v)} className={`rounded px-2 py-0.5 text-xs ${view === v ? 'bg-accent text-accent-ink' : 'border border-line text-muted'}`}>
-              {v.toUpperCase()}
+            <button key={v} role="radio" aria-checked={view === v} onClick={() => setView(v)} className={`px-1 ${view === v ? 'bg-accent text-accent-ink' : 'text-muted hover:text-fg'}`}>
+              [{v}]
             </button>
           ))}
         </div>
         {conv && (
-          <span className="ml-auto flex gap-3 text-xs">
-            <span className="text-[var(--p-http)]">■ {conv.a.addr} → {aBytes} B</span>
-            <span className="text-[var(--p-tls)]">■ {conv.b.addr} → {bBytes} B</span>
+          <span className="ml-auto flex gap-3 tabular-nums">
+            <span className="text-[var(--p-http)]" title={conv.a.addr}>
+              <span aria-hidden>▌</span>client {aBytes}B
+            </span>
+            <span className="text-[var(--p-tls)]" title={conv.b.addr}>
+              <span aria-hidden>▌</span>server {bBytes}B
+            </span>
           </span>
         )}
       </div>
-      <div className="scroll-thin min-h-0 flex-1 overflow-auto p-3 font-mono text-[12px] leading-relaxed">
-        {!conv && <p className="font-sans text-sm text-muted">No TCP/UDP stream with payload in this capture.</p>}
-        {conv && segs.length === 0 && <p className="font-sans text-sm text-muted">This stream carries no payload (only handshakes/ACKs).</p>}
+      <div className="scroll-thin min-h-0 flex-1 overflow-auto p-2 leading-relaxed">
+        {!conv && <p className="text-faint">-- no tcp/udp stream with payload in this capture --</p>}
+        {conv && segs.length === 0 && <p className="text-faint">-- stream carries no payload (handshake/acks only) --</p>}
         {segs.map((s, i) => (
-          <pre
+          <div
             key={i}
             onClick={() => useCapture.getState().select(s.frame)}
             title={`Frame ${s.frame} — click to select`}
-            className={`mb-1 cursor-pointer whitespace-pre-wrap break-all rounded px-2 py-1 ${s.fromA ? 'bg-[var(--p-http)]/10 text-[var(--p-http)]' : 'bg-[var(--p-tls)]/10 text-[var(--p-tls)]'}`}
+            className={`mb-1 flex cursor-pointer gap-2 border-l-2 pl-2 hover:bg-panel3 ${s.fromA ? 'border-[var(--p-http)] text-[var(--p-http)]' : 'border-[var(--p-tls)] text-[var(--p-tls)]'}`}
           >
-            {maskedFrames.has(s.frame) ? '•'.repeat(Math.max(1, s.bytes.length - 2)) : view === 'ascii' ? mask(toAscii(s.bytes)) : mask(toHex(s.bytes))}
-          </pre>
+            <span aria-hidden className="w-9 shrink-0 select-none text-right text-[10px] tabular-nums text-faint">
+              #{s.frame}
+            </span>
+            <pre className="m-0 min-w-0 flex-1 whitespace-pre-wrap break-all font-mono text-[12px]">
+              {maskedFrames.has(s.frame) ? '•'.repeat(Math.max(1, s.bytes.length - 2)) : view === 'ascii' ? mask(toAscii(s.bytes)) : mask(toHex(s.bytes))}
+            </pre>
+          </div>
         ))}
       </div>
     </div>

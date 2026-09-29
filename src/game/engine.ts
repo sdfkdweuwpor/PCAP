@@ -10,6 +10,8 @@ import { orderGenerators } from './generators/order'
 import { pickGenerators } from './generators/pick'
 import { saysGenerators } from './generators/says'
 import { buildStory } from './generators/story'
+import { filterGenerators, gradeFilter, matchSet } from './generators/filters'
+import { gradeText, typedGenerators } from './generators/typed'
 import { correctNotLongest, lengthRatio, MAX_LENGTH_RATIO, shuffle } from './options'
 import type { Answer, Concept, Grade, Mode, Question, Story } from './types'
 
@@ -20,6 +22,8 @@ export const ALL_GENERATORS: Generator[] = [
   ...fieldGenerators,
   ...orderGenerators,
   ...anomalyGenerators,
+  ...typedGenerators,
+  ...filterGenerators,
 ]
 
 export interface QuestionBank {
@@ -85,6 +89,16 @@ export function validateQuestion(q: Question, index: CaptureIndex): string | nul
       if (!q.cards.every((c) => okFrame(c.packet))) return 'bad card frame'
       for (let i = 1; i < q.cards.length; i++) if (q.cards[i].packet <= q.cards[i - 1].packet) return 'cards not in wire order'
       return null
+    case 'text':
+      if (!q.accept.length || q.accept.some((a) => !a.trim())) return 'no accepted answers'
+      if (gradeText(q, q.accept[0]).score !== 1) return 'canonical answer does not grade as correct'
+      return null
+    case 'filter': {
+      if (!q.target.length || !q.target.every(okFrame)) return 'bad filter target'
+      const got = matchSet(index, q.reference)
+      if (got.length !== q.target.length || got.some((x, i) => x !== q.target[i])) return 'reference filter does not match target'
+      return null
+    }
   }
 }
 
@@ -117,7 +131,7 @@ export function findByKey(layers: Field[], key: string): Field | undefined {
   return hit
 }
 
-export function grade(q: Question, a: Answer, layers?: Field[]): Grade {
+export function grade(q: Question, a: Answer, layers?: Field[], index?: CaptureIndex): Grade {
   switch (q.kind) {
     case 'pick': {
       if (a.kind !== 'pick') return { score: 0, feedback: 'No packet selected.' }
@@ -154,6 +168,20 @@ export function grade(q: Question, a: Answer, layers?: Field[]): Grade {
       if (target && clicked.key !== 'frame' && clicked.children?.length && contains(clicked, target) && clicked.length <= target.length * 6)
         return { score: 0.5, feedback: `Close: "${clicked.name}" contains the ${q.targetLabel}. Partial credit.` }
       return { score: 0, feedback: `That is "${clicked.name}", not the ${q.targetLabel}.` }
+    }
+    case 'text': {
+      if (a.kind !== 'text') return { score: 0, feedback: 'Nothing typed.' }
+      const r = gradeText(q, a.text)
+      return { score: r.score, feedback: r.score ? r.note || 'Exactly right.' : `Expected ${q.accept[0]}.` }
+    }
+    case 'filter': {
+      if (a.kind !== 'filter' || !index) return { score: 0, feedback: 'No filter submitted.' }
+      try {
+        const r = gradeFilter(q, index, a.text)
+        return { score: r.score, feedback: r.note }
+      } catch (e) {
+        return { score: 0, feedback: e instanceof Error ? e.message : 'Invalid filter.' }
+      }
     }
     case 'order': {
       if (a.kind !== 'order') return { score: 0, feedback: 'No order submitted.' }

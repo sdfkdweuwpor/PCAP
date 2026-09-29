@@ -41,6 +41,8 @@ describe.each(loaded)('$sample.id', ({ index, dissect, bank }) => {
       if (q.kind === 'pick') expect(grade(q, { kind: 'pick', packets: q.multi ? q.answer : [q.answer[0]] }).score).toBe(1)
       if (q.kind === 'choice') expect(grade(q, { kind: 'choice', index: q.correct }).score).toBe(1)
       if (q.kind === 'order') expect(grade(q, { kind: 'order', ids: q.cards.map((c) => c.id) }).score).toBe(1)
+      if (q.kind === 'text') expect(grade(q, { kind: 'text', text: q.accept[0] }).score, q.id).toBe(1)
+      if (q.kind === 'filter') expect(grade(q, { kind: 'filter', text: q.reference }, undefined, index).score, q.id).toBe(1)
       if (q.kind === 'field') {
         const layers = dissect(q.packet).layers
         const target = q.targetKeys.map((k) => find(layers, k)).find(Boolean)!
@@ -80,7 +82,7 @@ describe('generator coverage', () => {
 
   it('covers every mode across the samples', () => {
     const modes = new Set(loaded.flatMap((l) => l.bank.questions.map((q) => q.mode)))
-    expect([...modes].sort()).toEqual(['anomaly', 'field', 'means', 'order', 'pick', 'says'])
+    expect([...modes].sort()).toEqual(['anomaly', 'field', 'filter', 'means', 'order', 'pick', 'says', 'type'])
   })
 })
 

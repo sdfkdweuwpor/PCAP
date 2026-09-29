@@ -1,12 +1,16 @@
+// Settings and progress as a config-file panel: `key  value` rows with bracket toggles, then stats.
+
 import { AnimatePresence, motion } from 'framer-motion'
-import { useEffect, useRef, useState } from 'react'
-import { rankFor } from '../../game/scoring'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { nextRank, rankFor } from '../../game/scoring'
 import { CONCEPT_LABEL, type Concept } from '../../game/types'
 import { useProgress, type Settings } from '../../store/progress'
-import { IconDownload, IconUpload, IconX } from '../icons'
+import { useReduced } from '../motion'
+import { Btn, Meter } from '../term'
 
 export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const p = useProgress()
+  const reduced = useReduced()
   const [msg, setMsg] = useState<string | null>(null)
   const [confirmReset, setConfirmReset] = useState(false)
   const file = useRef<HTMLInputElement>(null)
@@ -31,129 +35,201 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
   }
 
   const concepts = (Object.entries(p.concepts) as [Concept, { seen: number; correct: number }][]).sort((a, b) => b[1].seen - a[1].seen)
+  const rank = rankFor(p.xp)
+  const next = nextRank(p.xp)
+  const frac = next ? (p.xp - rank.minXp) / (next.minXp - rank.minXp) : 1
+  const accuracy = p.answered ? Math.round((p.correct / p.answered) * 100) : 0
+  const onOff: [string, string][] = [['on', 'on'], ['off', 'off']]
+  const phosphor = p.settings.theme !== 'paper'
 
   return (
     <AnimatePresence>
       {open && (
-        <motion.div className="fixed inset-0 z-[90] flex justify-end bg-bg/60 backdrop-blur-[2px]" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
+        <motion.div
+          className="fixed inset-0 z-[90] flex justify-end bg-bg/70"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: reduced ? 0 : 0.1 }}
+          onClick={onClose}
+        >
           <motion.div
             ref={panel}
             tabIndex={-1}
             role="dialog"
             aria-modal="true"
             aria-labelledby="settings-title"
-            className="scroll-thin h-full w-full max-w-sm overflow-y-auto border-l border-line bg-panel p-5 outline-none"
-            initial={{ x: 60, opacity: 0 }}
+            className="scroll-thin flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-line-strong bg-panel text-[12px] outline-none"
+            initial={{ x: reduced ? 0 : 24, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
-            exit={{ x: 60, opacity: 0 }}
-            transition={{ type: 'spring', stiffness: 320, damping: 32 }}
+            exit={{ x: reduced ? 0 : 24, opacity: 0 }}
+            transition={{ duration: reduced ? 0 : 0.12, ease: 'linear' }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between">
-              <h2 id="settings-title" className="text-lg font-bold">
-                Settings & progress
+            <header className="flex h-6 shrink-0 items-center gap-2 border-b border-line bg-panel2 px-2 text-[11px] tracking-[0.06em]">
+              <span className="text-faint" aria-hidden>
+                ┌
+              </span>
+              <h2 id="settings-title" className="font-semibold text-fg">
+                ~/.pktq/config
               </h2>
-              <button onClick={onClose} aria-label="Close settings" className="rounded p-1 text-muted hover:text-fg">
-                <IconX />
+              <span className="rule" aria-hidden />
+              <button onClick={onClose} aria-label="Close settings" className="text-muted hover:text-fg">
+                [esc]
               </button>
-            </div>
+            </header>
 
-            <section className="mt-4 space-y-3 text-sm">
-              <Row label="Theme">
-                <Seg value={p.settings.theme} options={[['dark', 'Dark'], ['light', 'Light']]} onChange={(v) => set({ theme: v as Settings['theme'] })} />
-              </Row>
-              <Row label="Reduce motion">
-                <Seg
-                  value={p.settings.reduceMotion}
-                  options={[['system', 'System'], ['on', 'On'], ['off', 'Off']]}
-                  onChange={(v) => set({ reduceMotion: v as Settings['reduceMotion'] })}
-                />
-              </Row>
-              <Toggle label="Show question timer" checked={p.settings.showTimer} onChange={(v) => set({ showTimer: v })} />
-              <Toggle label="Unlock all modes (instructor mode)" checked={p.settings.unlockAll} onChange={(v) => set({ unlockAll: v })} />
-              <Toggle
-                label="AI explain hook (experimental)"
-                hint="Off by default. When on, an “AI explain” button appears; it only works if your build registers a provider, and it sends the masked text summary — never raw packets."
-                checked={p.settings.aiExplain}
-                onChange={(v) => set({ aiExplain: v })}
-              />
-            </section>
-
-            <section className="mt-6">
-              <h3 className="text-sm font-semibold">Your progress</h3>
-              <p className="mt-1 text-sm text-muted">
-                {rankFor(p.xp).name} · {p.xp} XP · {p.answered} answered · {p.answered ? Math.round((p.correct / p.answered) * 100) : 0}% correct · best streak {p.bestStreak}
-              </p>
-              {!p.storageOk && <p className="mt-1 text-xs text-warn">Browser storage is unavailable, so progress won't survive a reload. Use Export to keep it.</p>}
-              {concepts.length > 0 && (
-                <ul className="mt-2 space-y-1">
-                  {concepts.map(([c, s]) => (
-                    <li key={c} className="flex items-center gap-2 text-xs">
-                      <span className="w-28 truncate">{CONCEPT_LABEL[c]}</span>
-                      <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-panel3">
-                        <span className="block h-full origin-left rounded-full bg-accent" style={{ transform: `scaleX(${s.correct / s.seen})` }} />
-                      </span>
-                      <span className="w-16 text-right font-mono text-muted">
-                        {Math.round((s.correct / s.seen) * 100)}% ({s.seen})
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button onClick={exportFile} className="flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-xs hover:border-accent">
-                  <IconDownload size={13} /> Export progress
-                </button>
-                <button onClick={() => file.current?.click()} className="flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-xs hover:border-accent">
-                  <IconUpload size={13} /> Import progress
-                </button>
-                <input
-                  ref={file}
-                  type="file"
-                  accept="application/json,.json"
-                  className="hidden"
-                  onChange={async (e) => {
-                    const f = e.target.files?.[0]
-                    e.target.value = ''
-                    if (!f) return
-                    const err = p.importJSON(await f.text())
-                    setMsg(err ?? 'Progress imported.')
-                  }}
-                />
-                {confirmReset ? (
-                  <span className="flex items-center gap-1 text-xs">
-                    Erase all progress?
-                    <button
-                      onClick={() => {
-                        p.reset()
-                        setConfirmReset(false)
-                        setMsg('Progress reset.')
-                      }}
-                      className="rounded bg-bad px-2 py-1 font-semibold text-white"
-                    >
-                      Yes, reset
-                    </button>
-                    <button onClick={() => setConfirmReset(false)} className="rounded border border-line px-2 py-1">
-                      Cancel
-                    </button>
-                  </span>
-                ) : (
-                  <button onClick={() => setConfirmReset(true)} className="rounded-lg border border-bad/50 px-3 py-1.5 text-xs text-bad hover:bg-bad/10">
-                    Reset
-                  </button>
-                )}
-              </div>
-              {msg && (
-                <p className="mt-2 text-xs text-muted" role="status">
-                  {msg}
+            <div className="space-y-6 p-4">
+              <section aria-label="Settings">
+                <Label>settings</Label>
+                <dl className="space-y-1.5">
+                  <Row k="theme">
+                    <Choice
+                      label="theme"
+                      value={p.settings.theme}
+                      options={[['amber', 'amber'], ['green', 'green'], ['paper', 'paper']]}
+                      onChange={(v) => set({ theme: v as Settings['theme'] })}
+                    />
+                  </Row>
+                  <Row k="crt scanlines">
+                    <Choice label="crt scanlines" value={p.settings.crt ? 'on' : 'off'} options={onOff} onChange={(v) => set({ crt: v === 'on' })} dim={!phosphor} />
+                    {!phosphor && <span className="ml-2 text-faint">amber/green only</span>}
+                  </Row>
+                  <Row k="reduce motion">
+                    <Choice
+                      label="reduce motion"
+                      value={p.settings.reduceMotion}
+                      options={[['system', 'system'], ['on', 'on'], ['off', 'off']]}
+                      onChange={(v) => set({ reduceMotion: v as Settings['reduceMotion'] })}
+                    />
+                  </Row>
+                  <Row k="show timer">
+                    <Choice label="show timer" value={p.settings.showTimer ? 'on' : 'off'} options={onOff} onChange={(v) => set({ showTimer: v === 'on' })} />
+                  </Row>
+                  <Row k="unlock all">
+                    <Choice label="unlock all modes" value={p.settings.unlockAll ? 'on' : 'off'} options={onOff} onChange={(v) => set({ unlockAll: v === 'on' })} />
+                    <span className="ml-2 text-faint"># instructor mode</span>
+                  </Row>
+                  <Row k="ai explain">
+                    <Choice label="ai explain hook" value={p.settings.aiExplain ? 'on' : 'off'} options={onOff} onChange={(v) => set({ aiExplain: v === 'on' })} />
+                    <span className="ml-2 text-faint"># experimental</span>
+                  </Row>
+                </dl>
+                <p className="mt-1.5 border-l border-line pl-2 text-[11px] text-faint">
+                  # ai explain is off by default. when on, an "ai explain" button appears; it only works if your build registers a provider, and it sends the masked text summary, never raw packets.
                 </p>
-              )}
-            </section>
+              </section>
 
-            <section className="mt-6 rounded-lg border border-line bg-panel2 p-3 text-xs text-muted">
-              <p className="font-semibold text-fg">Privacy</p>
-              <p className="mt-1">Captures are parsed locally in a Web Worker and never leave this tab. Progress lives in this browser's localStorage only.</p>
-            </section>
+              <section aria-label="Progress">
+                <Label>progress</Label>
+                <dl className="space-y-1.5">
+                  <Row k="rank">
+                    <span className="text-accent">{rank.name.toLowerCase()}</span>
+                  </Row>
+                  <Row k="xp">
+                    <Meter value={frac} width={14} label="Progress to next rank" /> <span className="tabular-nums">{p.xp}</span>
+                    {next && <span className="text-faint tabular-nums"> / {next.minXp}</span>}
+                  </Row>
+                  <Row k="answered">
+                    <span className="tabular-nums">{p.answered}</span>
+                  </Row>
+                  <Row k="accuracy">
+                    <span className="tabular-nums">{accuracy}%</span>
+                  </Row>
+                  <Row k="best streak">
+                    <span className="tabular-nums">{p.bestStreak}</span>
+                  </Row>
+                  <Row k="drill wpm">
+                    <span className="tabular-nums">{p.drill.bestWpm}</span> <span className="text-faint">best</span>
+                  </Row>
+                  <Row k="drill acc">
+                    <span className="tabular-nums">{p.drill.bestAccuracy}%</span> <span className="text-faint">best</span>
+                  </Row>
+                  <Row k="drill runs">
+                    <span className="tabular-nums">{p.drill.runs}</span>
+                  </Row>
+                </dl>
+                {!p.storageOk && <p className="mt-2 text-warn">warn: browser storage unavailable, progress will not survive a reload. use export to keep it.</p>}
+              </section>
+
+              {concepts.length > 0 && (
+                <section aria-label="Accuracy by concept">
+                  <Label>concepts</Label>
+                  <table className="w-full border-collapse tabular-nums">
+                    <caption className="sr-only">Accuracy by concept</caption>
+                    <tbody>
+                      {concepts.map(([c, s]) => {
+                        const v = s.correct / s.seen
+                        return (
+                          <tr key={c}>
+                            <th scope="row" className="w-[9.5rem] truncate py-0.5 pr-2 text-left font-normal text-muted">
+                              {CONCEPT_LABEL[c].toLowerCase()}
+                            </th>
+                            <td className="py-0.5 pr-2">
+                              <Meter value={v} width={12} label={`${CONCEPT_LABEL[c]} accuracy`} />
+                            </td>
+                            <td className="py-0.5 pr-2 text-right">{Math.round(v * 100)}%</td>
+                            <td className="py-0.5 text-right text-faint">n={s.seen}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </section>
+              )}
+
+              <section aria-label="Data">
+                <Label>data</Label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Btn onClick={exportFile}>export</Btn>
+                  <Btn onClick={() => file.current?.click()}>import</Btn>
+                  <input
+                    ref={file}
+                    type="file"
+                    accept="application/json,.json"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const f = e.target.files?.[0]
+                      e.target.value = ''
+                      if (!f) return
+                      const err = p.importJSON(await f.text())
+                      setMsg(err ? `error: ${err}` : '[ ok ] progress imported')
+                    }}
+                  />
+                  {confirmReset ? (
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className="text-bad">erase all progress?</span>
+                      <Btn
+                        tone="danger"
+                        onClick={() => {
+                          p.reset()
+                          setConfirmReset(false)
+                          setMsg('[ ok ] progress reset')
+                        }}
+                      >
+                        yes, reset
+                      </Btn>
+                      <Btn onClick={() => setConfirmReset(false)}>cancel</Btn>
+                    </span>
+                  ) : (
+                    <Btn tone="danger" onClick={() => setConfirmReset(true)}>
+                      reset
+                    </Btn>
+                  )}
+                </div>
+                {msg && (
+                  <p className={`mt-2 ${msg.startsWith('error') ? 'text-bad' : 'text-good'}`} role="status">
+                    {msg}
+                  </p>
+                )}
+              </section>
+
+              <section aria-label="Privacy" className="border-t border-line pt-3 text-[11px] text-faint">
+                <p>
+                  # captures are parsed locally in a web worker and never leave this tab. progress lives in this browser's localStorage only.
+                </p>
+              </section>
+            </div>
           </motion.div>
         </motion.div>
       )}
@@ -161,37 +237,32 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
   )
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+function Label({ children }: { children: ReactNode }) {
+  return <h3 className="mb-2 border-b border-line pb-1 text-[11px] uppercase tracking-[0.12em] text-faint">[{children}]</h3>
+}
+
+/** `key  value` line: fixed-width key column, value flows after it. */
+function Row({ k, children }: { k: string; children: ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <span>{label}</span>
-      {children}
+    <div className="flex items-baseline gap-2">
+      <dt className="w-28 shrink-0 text-muted">{k}</dt>
+      <dd className="m-0 min-w-0 flex-1">{children}</dd>
     </div>
   )
 }
 
-function Seg({ value, options, onChange }: { value: string; options: [string, string][]; onChange: (v: string) => void }) {
+/** Bracket choice group: the active option reads `[on]`, the others are bare words. */
+function Choice({ label, value, options, onChange, dim }: { label: string; value: string; options: [string, string][]; onChange: (v: string) => void; dim?: boolean }) {
   return (
-    <div role="radiogroup" className="flex rounded-lg border border-line p-0.5">
-      {options.map(([v, l]) => (
-        <button key={v} role="radio" aria-checked={value === v} onClick={() => onChange(v)} className={`rounded-md px-2.5 py-1 text-xs ${value === v ? 'bg-accent text-accent-ink' : 'text-muted'}`}>
-          {l}
-        </button>
-      ))}
-    </div>
-  )
-}
-
-function Toggle({ label, hint, checked, onChange }: { label: string; hint?: string; checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <label className="flex cursor-pointer items-start justify-between gap-3">
-      <span>
-        {label}
-        {hint && <span className="mt-0.5 block text-xs text-muted">{hint}</span>}
-      </span>
-      <button role="switch" aria-checked={checked} onClick={() => onChange(!checked)} className={`relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors ${checked ? 'bg-accent' : 'bg-panel3'}`}>
-        <motion.span className="absolute top-0.5 h-4 w-4 rounded-full bg-white shadow" animate={{ x: checked ? 18 : 2 }} transition={{ type: 'spring', stiffness: 500, damping: 30 }} />
-      </button>
-    </label>
+    <span role="radiogroup" aria-label={label} className={`inline-flex gap-2 ${dim ? 'opacity-50' : ''}`}>
+      {options.map(([v, l]) => {
+        const on = value === v
+        return (
+          <button key={v} role="radio" aria-checked={on} onClick={() => onChange(v)} className={`whitespace-pre ${on ? 'text-accent' : 'text-muted hover:text-fg'}`}>
+            {on ? `[${l}]` : ` ${l} `}
+          </button>
+        )
+      })}
+    </span>
   )
 }

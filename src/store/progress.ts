@@ -6,7 +6,9 @@ import type { Concept } from '../game/types'
 import { loadJSON, removeKey, saveJSON } from './storage'
 
 export interface Settings {
-  theme: 'dark' | 'light'
+  theme: 'amber' | 'green' | 'paper'
+  /** Scanline/vignette overlay on the phosphor screens. */
+  crt: boolean
   /** 'system' follows prefers-reduced-motion. */
   reduceMotion: 'system' | 'on' | 'off'
   unlockAll: boolean
@@ -33,6 +35,8 @@ export interface Progress {
   correct: number
   concepts: Partial<Record<Concept, ConceptStat>>
   sessions: SessionRecord[]
+  /** Keystroke drill personal bests. */
+  drill: { bestWpm: number; bestAccuracy: number; runs: number }
   settings: Settings
 }
 
@@ -46,13 +50,15 @@ export const DEFAULT_PROGRESS: Progress = {
   correct: 0,
   concepts: {},
   sessions: [],
-  settings: { theme: 'dark', reduceMotion: 'system', unlockAll: false, showTimer: true, aiExplain: false },
+  drill: { bestWpm: 0, bestAccuracy: 0, runs: 0 },
+  settings: { theme: 'amber', crt: true, reduceMotion: 'system', unlockAll: false, showTimer: true, aiExplain: false },
 }
 
 interface ProgressStore extends Progress {
   storageOk: boolean
   record: (concept: Concept, score: number, xp: number, streak: number) => void
   addSession: (s: SessionRecord) => void
+  recordDrill: (wpm: number, accuracy: number, xp: number) => void
   setSettings: (s: Partial<Settings>) => void
   exportJSON: () => string
   importJSON: (json: string) => string | null
@@ -61,13 +67,19 @@ interface ProgressStore extends Progress {
 
 function initial(): Progress {
   const p = loadJSON<Progress>(KEY, DEFAULT_PROGRESS)
-  return { ...p, settings: { ...DEFAULT_PROGRESS.settings, ...p.settings } }
+  const settings = { ...DEFAULT_PROGRESS.settings, ...p.settings }
+  // Migrate the pre-terminal theme names.
+  const legacy = settings.theme as string
+  if (legacy === 'dark') settings.theme = 'amber'
+  if (legacy === 'light') settings.theme = 'paper'
+  if (!['amber', 'green', 'paper'].includes(settings.theme)) settings.theme = 'amber'
+  return { ...p, drill: { ...DEFAULT_PROGRESS.drill, ...p.drill }, settings }
 }
 
 export const useProgress = create<ProgressStore>((set, get) => {
   const persist = () => {
-    const { version, xp, bestStreak, answered, correct, concepts, sessions, settings } = get()
-    const ok = saveJSON(KEY, { version, xp, bestStreak, answered, correct, concepts, sessions, settings })
+    const { version, xp, bestStreak, answered, correct, concepts, sessions, drill, settings } = get()
+    const ok = saveJSON(KEY, { version, xp, bestStreak, answered, correct, concepts, sessions, drill, settings })
     if (ok !== get().storageOk) set({ storageOk: ok })
   }
   return {
@@ -86,6 +98,17 @@ export const useProgress = create<ProgressStore>((set, get) => {
       })
       persist()
     },
+    recordDrill(wpm, accuracy, xp) {
+      set((s) => ({
+        xp: s.xp + xp,
+        drill: {
+          bestWpm: Math.max(s.drill.bestWpm, wpm),
+          bestAccuracy: Math.max(s.drill.bestAccuracy, accuracy),
+          runs: s.drill.runs + 1,
+        },
+      }))
+      persist()
+    },
     addSession(rec) {
       set((s) => ({ sessions: [rec, ...s.sessions].slice(0, 25) }))
       persist()
@@ -95,8 +118,8 @@ export const useProgress = create<ProgressStore>((set, get) => {
       persist()
     },
     exportJSON() {
-      const { version, xp, bestStreak, answered, correct, concepts, sessions, settings } = get()
-      return JSON.stringify({ app: 'PacketQuest', version, xp, bestStreak, answered, correct, concepts, sessions, settings }, null, 2)
+      const { version, xp, bestStreak, answered, correct, concepts, sessions, drill, settings } = get()
+      return JSON.stringify({ app: 'PacketQuest', version, xp, bestStreak, answered, correct, concepts, sessions, drill, settings }, null, 2)
     },
     importJSON(json) {
       try {
@@ -110,6 +133,7 @@ export const useProgress = create<ProgressStore>((set, get) => {
           correct: Number(d.correct) || 0,
           concepts: d.concepts ?? {},
           sessions: Array.isArray(d.sessions) ? d.sessions.slice(0, 25) : [],
+          drill: { ...DEFAULT_PROGRESS.drill, ...(d.drill ?? {}) },
           settings: { ...DEFAULT_PROGRESS.settings, ...(d.settings ?? {}) },
         })
         persist()

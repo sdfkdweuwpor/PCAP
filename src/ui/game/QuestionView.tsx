@@ -1,21 +1,32 @@
-// One question: header (mode, tier, progress, timer), prompt, the mode-specific answer UI, hint,
-// then the explanation card.
+// One question in the console: case header, prompt, the mode-specific input, hint, then the graded log.
 
-import { AnimatePresence, motion, Reorder } from 'framer-motion'
-import { useEffect, useMemo, useState } from 'react'
+import { motion, Reorder } from 'framer-motion'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { compileFilter, FilterError } from '../../core/filter/filter'
+import { seeded } from '../../game/engine'
 import { maskInfo } from '../../game/knowledge'
 import { shuffle } from '../../game/options'
-import { CONCEPT_LABEL, MODE_INFO, type ChoiceQuestion, type FieldQuestion, type OrderQuestion, type PickQuestion } from '../../game/types'
-import { seeded } from '../../game/engine'
+import {
+  CONCEPT_LABEL,
+  MODE_INFO,
+  type ChoiceQuestion,
+  type FieldQuestion,
+  type FilterQuestion,
+  type OrderQuestion,
+  type PickQuestion,
+  type TextQuestion,
+} from '../../game/types'
 import { useCapture } from '../../store/capture'
 import { BLITZ_SECONDS, useGame } from '../../store/game'
 import { useProgress } from '../../store/progress'
 import { useTicker } from '../hooks'
-import { IconBulb, IconCheck, IconDown, IconGrip, IconTarget, IconUp, IconX } from '../icons'
+import { Btn, Kbd, Meter } from '../term'
+import { TIER_TONE } from '../tones'
 import { ExplanationCard } from './ExplanationCard'
 import { XpFloat } from './XpFloat'
 
-const TIER_COLOR = { Recruit: 'var(--good)', Analyst: 'var(--accent)', Hunter: 'var(--bad)' }
+const pad = (n: number) => String(n).padStart(2, '0')
+const clock = (s: number) => `${pad(Math.floor(s / 60))}:${pad(s % 60)}`
 
 export function QuestionView() {
   const { deck, idx, phase, hintUsed, questionStart, blitzEndsAt, playMode, feedback } = useGame()
@@ -23,22 +34,21 @@ export function QuestionView() {
   const showTimer = useProgress((s) => s.settings.showTimer)
   const now = useTicker(phase === 'question', 250)
 
-  // Blitz: end the session when time runs out.
   useEffect(() => {
     if (blitzEndsAt && now >= blitzEndsAt && phase === 'question') useGame.getState().finish()
   }, [now, blitzEndsAt, phase])
 
-  // Keyboard: 1–4 for choices, Enter/→ for next.
+  // Keyboard: 1–4 answer choices, n = next, ? = hint. Text inputs keep their own keys.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return
       const g = useGame.getState()
+      const cur = g.deck[g.idx]
       if (g.phase === 'feedback' && (e.key === 'n' || e.key === 'N')) {
         e.preventDefault()
         g.next()
-      }
-      const cur = g.deck[g.idx]
-      if (g.phase === 'question' && cur?.kind === 'choice' && /^[1-4]$/.test(e.key)) g.submit({ kind: 'choice', index: Number(e.key) - 1 })
+      } else if (g.phase === 'question' && e.key === '?') g.useHint()
+      else if (g.phase === 'question' && cur?.kind === 'choice' && /^[1-4]$/.test(e.key)) g.submit({ kind: 'choice', index: Number(e.key) - 1 })
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -47,88 +57,89 @@ export function QuestionView() {
   if (!q) return null
   const elapsed = Math.max(0, Math.floor(((phase === 'question' ? now : Date.now()) - questionStart) / 1000))
   const blitzLeft = blitzEndsAt ? Math.max(0, (blitzEndsAt - now) / 1000) : null
+  const info = MODE_INFO[q.mode]
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="shrink-0 border-b border-line px-4 pb-2 pt-3">
-        <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide">
-          <span className="rounded bg-accent/15 px-1.5 py-0.5 text-accent">
-            {MODE_INFO[q.mode === 'story' ? 'says' : q.mode].letter} · {MODE_INFO[q.mode].name}
+    <div className="flex min-h-0 flex-1 flex-col text-[12.5px]">
+      <div className="shrink-0 border-b border-line px-3 py-1.5 text-[11px]">
+        <div className="flex items-center gap-2 uppercase tracking-[0.1em]">
+          <span className="text-fg">
+            case {pad(idx + 1)}
+            {playMode !== 'blitz' && <span className="text-faint">/{pad(deck.length)}</span>}
           </span>
-          <span style={{ color: TIER_COLOR[q.tier] }}>{q.tier}</span>
-          <span className="truncate text-muted">{CONCEPT_LABEL[q.concept]}</span>
-          <span className="ml-auto shrink-0 text-muted">
-            {playMode === 'blitz' ? `#${idx + 1}` : `${idx + 1}/${deck.length}`}
+          <span className="text-faint">·</span>
+          <span className="text-accent">
+            {info.letter} {info.name.toLowerCase()}
+          </span>
+          <span className="ml-auto flex items-center gap-2 normal-case tracking-normal tabular-nums">
+            {blitzLeft !== null ? (
+              <span className={blitzLeft < 10 ? 'text-bad' : 'text-warn'}>{blitzLeft.toFixed(0)}s left</span>
+            ) : (
+              showTimer && <span className="text-muted">{clock(elapsed)}</span>
+            )}
+            <button onClick={() => useGame.getState().finish()} className="text-faint underline-offset-2 hover:text-fg hover:underline">
+              end
+            </button>
           </span>
         </div>
-        <div className="mt-2 flex items-center gap-2">
-          <div className="h-1 flex-1 overflow-hidden rounded-full bg-panel3" aria-hidden>
+        <div className="mt-0.5 flex items-center gap-2 text-faint">
+          <span className={TIER_TONE[q.tier]}>{q.tier.toLowerCase()}</span>
+          <span>·</span>
+          <span>{CONCEPT_LABEL[q.concept].toLowerCase()}</span>
+          <span className="ml-auto">
             {blitzLeft !== null ? (
-              <motion.div className="h-full origin-left rounded-full" style={{ background: blitzLeft < 10 ? 'var(--bad)' : 'var(--warn)', scaleX: blitzLeft / BLITZ_SECONDS }} />
+              <Meter value={blitzLeft / BLITZ_SECONDS} width={14} label="Time left" />
             ) : (
-              <motion.div className="h-full origin-left rounded-full bg-accent" animate={{ scaleX: (idx + (phase === 'feedback' ? 1 : 0)) / deck.length }} />
+              <Meter value={(idx + (phase === 'feedback' ? 1 : 0)) / deck.length} width={14} label="Session progress" />
             )}
-          </div>
-          {blitzLeft !== null ? (
-            <span className={`font-mono text-xs ${blitzLeft < 10 ? 'text-bad' : 'text-warn'}`} aria-live="off">
-              {blitzLeft.toFixed(0)}s
-            </span>
-          ) : (
-            showTimer && <span className="font-mono text-xs text-muted">{elapsed}s</span>
-          )}
-          <button onClick={() => useGame.getState().finish()} className="text-xs text-muted underline-offset-2 hover:text-fg hover:underline">
-            End
-          </button>
+          </span>
         </div>
       </div>
 
-      <div className="scroll-thin relative min-h-0 flex-1 overflow-y-auto px-4 py-3">
-        <AnimatePresence mode="wait">
-          <motion.div key={q.id} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ type: 'spring', stiffness: 300, damping: 30 }}>
-            <h2 className="text-[15px] font-semibold leading-snug" id="q-prompt">
-              {q.prompt}
-            </h2>
-            <div className="mt-3">
-              {q.kind === 'pick' && <PickBody q={q} />}
-              {q.kind === 'choice' && <ChoiceBody q={q} />}
-              {q.kind === 'field' && <FieldBody q={q} />}
-              {q.kind === 'order' && <OrderBody q={q} />}
+      <div className="scroll-thin relative min-h-0 flex-1 overflow-y-auto px-3 py-3">
+        <motion.div key={q.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.12 }}>
+          <h2 id="q-prompt" className="text-[13.5px] leading-snug text-fg">
+            <span className="mr-1 text-accent">&gt;</span>
+            {q.prompt}
+          </h2>
+          <div className="mt-3">
+            {q.kind === 'pick' && <PickBody q={q} />}
+            {q.kind === 'choice' && <ChoiceBody q={q} />}
+            {q.kind === 'field' && <FieldBody q={q} />}
+            {q.kind === 'order' && <OrderBody q={q} />}
+            {q.kind === 'text' && <TextBody key={q.id} q={q} />}
+            {q.kind === 'filter' && <FilterBody key={q.id} q={q} />}
+          </div>
+          {phase === 'question' && (
+            <div className="mt-3 text-[12px]">
+              {hintUsed ? (
+                <p className="border-l-2 border-warn pl-2">
+                  <span className="text-warn">hint</span> <span className="text-muted">{q.hint}</span>
+                </p>
+              ) : (
+                <button onClick={() => useGame.getState().useHint()} className="text-faint hover:text-warn">
+                  <Kbd>?</Kbd> hint <span className="text-faint">(−50% xp)</span>
+                </button>
+              )}
             </div>
-            {phase === 'question' && (
-              <div className="mt-3">
-                {hintUsed ? (
-                  <motion.p initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} className="flex gap-2 rounded-lg border border-warn/40 bg-warn/10 p-2 text-sm">
-                    <IconBulb size={16} className="mt-0.5 shrink-0 text-warn" /> {q.hint}
-                  </motion.p>
-                ) : (
-                  <button onClick={() => useGame.getState().useHint()} className="flex items-center gap-1 text-xs text-muted hover:text-warn">
-                    <IconBulb size={14} /> Hint (halves XP)
-                  </button>
-                )}
-              </div>
-            )}
-            {phase === 'feedback' && feedback && <ExplanationCard q={q} feedback={feedback} />}
-          </motion.div>
-        </AnimatePresence>
+          )}
+          {phase === 'feedback' && feedback && <ExplanationCard q={q} feedback={feedback} />}
+        </motion.div>
         <XpFloat />
       </div>
 
       {phase === 'feedback' && (
-        <div className="shrink-0 border-t border-line p-3">
-          <button
-            autoFocus
-            onClick={() => useGame.getState().next()}
-            className="w-full rounded-lg bg-accent py-2 font-semibold text-accent-ink hover:brightness-110"
-          >
-            {idx + 1 >= deck.length ? 'See session summary' : 'Next question'} <span className="text-xs opacity-70">(N)</span>
-          </button>
+        <div className="shrink-0 border-t border-line p-2">
+          <Btn tone="primary" block autoFocus hotkey="n" onClick={() => useGame.getState().next()}>
+            {idx + 1 >= deck.length ? 'session report' : 'next case'}
+          </Btn>
         </div>
       )}
     </div>
   )
 }
 
-// ---------------------------------------------------------------- Mode A
+// ---------------------------------------------------------------- A · pick
 
 function PickBody({ q }: { q: PickQuestion }) {
   const selected = useCapture((s) => s.selected)
@@ -139,37 +150,48 @@ function PickBody({ q }: { q: PickQuestion }) {
   const p = selected ? index.packets[selected - 1] : null
   if (phase !== 'question') return null
   return (
-    <div className="rounded-lg border border-line bg-panel2 p-3 text-sm">
-      <p className="flex items-center gap-2 text-xs text-muted">
-        <IconTarget size={14} />
-        {q.multi
-          ? 'Click each matching row in the packet list (click again to unselect), then submit.'
-          : 'Click a row in the packet list, then submit — or double-click the row / press Enter.'}
+    <div className="border border-line p-2 text-[12px]">
+      <p className="text-faint">
+        {q.multi ? 'click every matching row in the packet list (click again to drop it), then submit' : 'click a row in the packet list, then submit — or double-click / ↵ in the list'}
       </p>
-      {q.multi ? (
-        <div className="mt-2 flex min-h-7 flex-wrap gap-1">
-          {multi.length === 0 && <span className="text-xs text-faint">Nothing selected yet.</span>}
-          {[...multi].sort((a, b) => a - b).map((n) => (
-            <button key={n} onClick={() => useCapture.getState().toggleMulti(n)} className="rounded-full border border-accent/60 bg-accent/10 px-2 py-0.5 font-mono text-xs" aria-label={`Remove packet ${n}`}>
-              #{n} ✕
-            </button>
-          ))}
-        </div>
-      ) : (
-        <p className="mt-2 truncate font-mono text-xs">{p ? `#${p.no}  ${p.protocol}  ${reveal ? p.info : maskInfo(p)}` : <span className="text-faint">No packet selected.</span>}</p>
-      )}
-      <button
-        disabled={q.multi ? multi.length === 0 : !selected}
-        onClick={() => useGame.getState().submit({ kind: 'pick', packets: q.multi ? multi : [selected!] })}
-        className="mt-3 w-full rounded-lg bg-accent py-2 font-semibold text-accent-ink disabled:opacity-40"
-      >
-        {q.multi ? `Submit ${multi.length} packet${multi.length === 1 ? '' : 's'}` : selected ? `Submit packet #${selected}` : 'Select a packet'}
-      </button>
+      <p className="mt-1.5 truncate">
+        <span className="text-faint">sel </span>
+        {q.multi ? (
+          multi.length ? (
+            [...multi]
+              .sort((a, b) => a - b)
+              .map((n) => (
+                <button key={n} onClick={() => useCapture.getState().toggleMulti(n)} className="mr-2 text-accent hover:line-through" aria-label={`Remove packet ${n}`}>
+                  #{n}
+                </button>
+              ))
+          ) : (
+            <span className="text-faint">none</span>
+          )
+        ) : p ? (
+          <span>
+            <span className="text-accent">#{p.no}</span> {p.protocol} {reveal ? p.info : maskInfo(p)}
+          </span>
+        ) : (
+          <span className="text-faint">none</span>
+        )}
+      </p>
+      <div className="mt-2">
+        <Btn
+          tone="primary"
+          block
+          hotkey="↵"
+          disabled={q.multi ? multi.length === 0 : !selected}
+          onClick={() => useGame.getState().submit({ kind: 'pick', packets: q.multi ? multi : [selected!] })}
+        >
+          {q.multi ? `submit ${multi.length} frame${multi.length === 1 ? '' : 's'}` : selected ? `submit #${selected}` : 'select a frame'}
+        </Btn>
+      </div>
     </div>
   )
 }
 
-// ---------------------------------------------------------------- Modes B, C, F
+// ---------------------------------------------------------------- B, C, F · choice
 
 export function ChoiceBody({ q, chosen, onChoose, locked }: { q: ChoiceQuestion; chosen?: number | null; onChoose?: (i: number) => void; locked?: boolean }) {
   const phase = useGame((s) => s.phase)
@@ -177,78 +199,72 @@ export function ChoiceBody({ q, chosen, onChoose, locked }: { q: ChoiceQuestion;
   const answered = onChoose ? chosen !== null && chosen !== undefined : phase === 'feedback'
   const pick = onChoose ? chosen : feedback?.answer.kind === 'choice' ? feedback.answer.index : null
   return (
-    <div role="radiogroup" aria-labelledby="q-prompt" className="flex flex-col gap-2">
+    <div role="radiogroup" aria-labelledby="q-prompt" className="border-t border-line">
       {q.options.map((o, i) => {
         const isCorrect = i === q.correct
         const isPicked = pick === i
         const state = !answered ? 'idle' : isCorrect ? 'correct' : isPicked ? 'wrong' : 'dim'
         return (
-          <motion.button
+          <button
             key={i}
             role="radio"
             aria-checked={isPicked}
             disabled={answered || locked}
             onClick={() => (onChoose ? onChoose(i) : useGame.getState().submit({ kind: 'choice', index: i }))}
-            animate={state === 'wrong' ? { x: [0, -6, 5, -3, 0] } : state === 'correct' ? { scale: [1, 1.02, 1] } : {}}
-            transition={{ duration: 0.4 }}
-            className={`flex items-start gap-2 rounded-lg border p-2.5 text-left text-sm transition-colors ${
+            className={`grid w-full grid-cols-[2rem_1fr_1rem] items-baseline gap-1 border-b border-line px-1 py-1.5 text-left ${
               state === 'correct'
-                ? 'border-good bg-good/15'
+                ? 'bg-good/15 text-fg'
                 : state === 'wrong'
-                  ? 'border-bad bg-bad/15'
+                  ? 'bg-bad/15 text-fg'
                   : state === 'dim'
-                    ? 'border-line opacity-60'
-                    : 'border-line bg-panel2 hover:border-accent'
-            }`}
+                    ? 'text-faint'
+                    : 'hover:bg-accent hover:text-accent-ink'
+            } ${state === 'wrong' ? 'row-shake' : ''}`}
+            style={state === 'wrong' ? ({ ['--pulse' as string]: 'var(--bad)' } as React.CSSProperties) : undefined}
           >
-            <span className="mt-px grid h-5 w-5 shrink-0 place-items-center rounded border border-line font-mono text-[11px] text-muted">
-              {state === 'correct' ? <IconCheck size={12} className="text-good" /> : state === 'wrong' ? <IconX size={12} className="text-bad" /> : i + 1}
+            <span className="tabular-nums opacity-70">[{i + 1}]</span>
+            <span>{o}</span>
+            <span aria-hidden className={state === 'correct' ? 'text-good' : state === 'wrong' ? 'text-bad' : ''}>
+              {state === 'correct' ? '✓' : state === 'wrong' ? '✗' : ''}
             </span>
-            <span>
-              {o}
-              {state === 'correct' && <span className="sr-only"> (correct answer)</span>}
-              {state === 'wrong' && <span className="sr-only"> (your answer, incorrect)</span>}
-            </span>
-          </motion.button>
+            {state === 'correct' && <span className="sr-only"> (correct answer)</span>}
+            {state === 'wrong' && <span className="sr-only"> (your answer, incorrect)</span>}
+          </button>
         )
       })}
     </div>
   )
 }
 
-// ---------------------------------------------------------------- Mode D
+// ---------------------------------------------------------------- D · field hunt
 
 function FieldBody({ q }: { q: FieldQuestion }) {
   const pick = useGame((s) => s.fieldPick)
   const phase = useGame((s) => s.phase)
   if (phase !== 'question') return null
   return (
-    <div className="rounded-lg border border-line bg-panel2 p-3 text-sm">
-      <p className="flex items-center gap-2 text-xs text-muted">
-        <IconTarget size={14} /> Packet #{q.packet} is locked in the viewer. Click the field in the details tree, or its bytes in the hex pane.
-      </p>
-      <p className="mt-2 text-xs">
-        Your pick:{' '}
+    <div className="border border-line p-2 text-[12px]">
+      <p className="text-faint">frame #{q.packet} is locked in the viewer. click the field in the details tree, or its bytes in the hex pane.</p>
+      <p className="mt-1.5">
+        <span className="text-faint">sel </span>
         {pick ? (
-          <span className="font-mono">
-            {pick.name} <span className="text-muted">({pick.via === 'hex' ? `byte ${pick.offset}` : 'tree'})</span>
+          <span>
+            <span className="text-accent">{pick.key ?? pick.name}</span> <span className="text-faint">{pick.via === 'hex' ? `(byte ${pick.offset})` : '(tree)'}</span>
           </span>
         ) : (
-          <span className="text-faint">nothing yet</span>
+          <span className="text-faint">none</span>
         )}
       </p>
-      <button
-        disabled={!pick}
-        onClick={() => pick && useGame.getState().submit({ kind: 'field', key: pick.key, offset: pick.offset, via: pick.via })}
-        className="mt-3 w-full rounded-lg bg-accent py-2 font-semibold text-accent-ink disabled:opacity-40"
-      >
-        Submit field
-      </button>
+      <div className="mt-2">
+        <Btn tone="primary" block disabled={!pick} onClick={() => pick && useGame.getState().submit({ kind: 'field', key: pick.key, offset: pick.offset, via: pick.via })}>
+          submit field
+        </Btn>
+      </div>
     </div>
   )
 }
 
-// ---------------------------------------------------------------- Mode E
+// ---------------------------------------------------------------- E · order
 
 function OrderBody({ q }: { q: OrderQuestion }) {
   const phase = useGame((s) => s.phase)
@@ -256,19 +272,16 @@ function OrderBody({ q }: { q: OrderQuestion }) {
   const initial = useMemo(() => {
     const rng = seeded(q.id.length * 7919 + q.cards.length)
     let s = shuffle(q.cards, rng)
-    // Never start already solved.
     if (s.every((c, i) => c.id === q.cards[i].id)) s = [...s.slice(1), s[0]]
     return s
   }, [q])
   const [items, setItems] = useState(initial)
   const submitted = feedback?.answer.kind === 'order' ? feedback.answer.ids : null
 
-  // On submit, cards glide into the correct order.
   useEffect(() => {
-    if (phase === 'feedback') {
-      const t = setTimeout(() => setItems(q.cards), 350)
-      return () => clearTimeout(t)
-    }
+    if (phase !== 'feedback') return
+    const t = setTimeout(() => setItems(q.cards), 350)
+    return () => clearTimeout(t)
   }, [phase, q.cards])
 
   const move = (i: number, d: number) => {
@@ -280,9 +293,9 @@ function OrderBody({ q }: { q: OrderQuestion }) {
   }
 
   return (
-    <div>
-      <p className="mb-2 text-xs text-muted">{phase === 'question' ? 'Drag the cards (or use the arrows) so the first packet on the wire is at the top.' : 'The real order on the wire:'}</p>
-      <Reorder.Group axis="y" values={items} onReorder={setItems} className="flex flex-col gap-1.5" aria-label="Cards to order">
+    <div className="text-[12px]">
+      <p className="mb-1.5 text-faint">{phase === 'question' ? 'drag rows (or use ↑ ↓) so the first frame on the wire is on top' : 'wire order:'}</p>
+      <Reorder.Group axis="y" values={items} onReorder={setItems} className="border-t border-line" aria-label="Cards to order">
         {items.map((c, i) => {
           const wasAt = submitted ? submitted.indexOf(c.id) : -1
           const right = submitted ? wasAt === q.cards.findIndex((x) => x.id === c.id) : null
@@ -291,21 +304,24 @@ function OrderBody({ q }: { q: OrderQuestion }) {
               key={c.id}
               value={c}
               dragListener={phase === 'question'}
-              className={`flex select-none items-center gap-2 rounded-lg border px-2 py-2 text-sm ${
-                right === null ? 'border-line bg-panel2' : right ? 'border-good/70 bg-good/10' : 'border-bad/70 bg-bad/10'
+              className={`grid select-none grid-cols-[1.6rem_1fr_auto] items-center gap-1 border-b border-line bg-panel px-1 py-1 ${
+                right === null ? '' : right ? 'bg-good/10' : 'bg-bad/10'
               } ${phase === 'question' ? 'cursor-grab active:cursor-grabbing' : ''}`}
-              whileDrag={{ scale: 1.03, boxShadow: 'var(--shadow)' }}
+              whileDrag={{ boxShadow: 'var(--shadow)' }}
             >
-              {phase === 'question' ? <IconGrip size={14} className="shrink-0 text-muted" /> : <span className="w-4 shrink-0 text-center font-mono text-xs text-muted">{i + 1}</span>}
-              <span className="min-w-0 flex-1 truncate font-mono text-xs">{c.label}</span>
-              {right !== null && (right ? <IconCheck size={14} className="text-good" aria-label="was in the right place" /> : <IconX size={14} className="text-bad" aria-label="was in the wrong place" />)}
-              {phase === 'question' && (
-                <span className="flex shrink-0 gap-0.5">
-                  <button onClick={() => move(i, -1)} disabled={i === 0} className="rounded p-0.5 text-muted hover:text-fg disabled:opacity-30" aria-label={`Move ${c.label} up`}>
-                    <IconUp size={14} />
+              <span className="tabular-nums text-faint">{pad(i + 1)}</span>
+              <span className="truncate">{c.label}</span>
+              {right !== null ? (
+                <span className={right ? 'text-good' : 'text-bad'} aria-label={right ? 'was in the right place' : 'was in the wrong place'}>
+                  {right ? '✓' : `✗ was ${pad(wasAt + 1)}`}
+                </span>
+              ) : (
+                <span className="flex gap-1 text-faint">
+                  <button onClick={() => move(i, -1)} disabled={i === 0} className="px-1 hover:text-accent disabled:opacity-30" aria-label={`Move ${c.label} up`}>
+                    ↑
                   </button>
-                  <button onClick={() => move(i, 1)} disabled={i === items.length - 1} className="rounded p-0.5 text-muted hover:text-fg disabled:opacity-30" aria-label={`Move ${c.label} down`}>
-                    <IconDown size={14} />
+                  <button onClick={() => move(i, 1)} disabled={i === items.length - 1} className="px-1 hover:text-accent disabled:opacity-30" aria-label={`Move ${c.label} down`}>
+                    ↓
                   </button>
                 </span>
               )}
@@ -314,10 +330,189 @@ function OrderBody({ q }: { q: OrderQuestion }) {
         })}
       </Reorder.Group>
       {phase === 'question' && (
-        <button onClick={() => useGame.getState().submit({ kind: 'order', ids: items.map((c) => c.id) })} className="mt-3 w-full rounded-lg bg-accent py-2 font-semibold text-accent-ink">
-          Submit order
-        </button>
+        <div className="mt-2">
+          <Btn tone="primary" block onClick={() => useGame.getState().submit({ kind: 'order', ids: items.map((c) => c.id) })}>
+            submit order
+          </Btn>
+        </div>
       )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------- H · type the answer
+
+function PromptInput({
+  label,
+  value,
+  onChange,
+  onSubmit,
+  placeholder,
+  disabled,
+  tone,
+  describedBy,
+}: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  onSubmit: () => void
+  placeholder: string
+  disabled?: boolean
+  tone?: 'good' | 'bad'
+  describedBy?: string
+}) {
+  const ref = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (!disabled) ref.current?.focus()
+  }, [disabled])
+  return (
+    <label className={`flex items-center gap-2 border px-2 py-1.5 text-[13px] ${tone === 'good' ? 'border-good' : tone === 'bad' ? 'border-bad' : 'border-line-strong focus-within:border-accent'}`}>
+      <span className="shrink-0 text-accent">{label}&gt;</span>
+      <input
+        ref={ref}
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            onSubmit()
+          }
+        }}
+        placeholder={placeholder}
+        spellCheck={false}
+        autoCapitalize="off"
+        autoComplete="off"
+        autoCorrect="off"
+        aria-labelledby="q-prompt"
+        aria-describedby={describedBy}
+        className="min-w-0 flex-1 bg-transparent caret-[var(--accent)] outline-none placeholder:text-faint disabled:text-muted"
+      />
+      {!disabled && <Kbd>↵</Kbd>}
+    </label>
+  )
+}
+
+function TextBody({ q }: { q: TextQuestion }) {
+  const phase = useGame((s) => s.phase)
+  const feedback = useGame((s) => s.feedback)
+  const [v, setV] = useState('')
+  const answered = phase === 'feedback'
+  const typed = feedback?.answer.kind === 'text' ? feedback.answer.text : v
+  const ok = (feedback?.grade.score ?? 0) >= 1
+  return (
+    <div className="text-[12px]">
+      <PromptInput
+        label="answer"
+        value={answered ? typed : v}
+        onChange={setV}
+        onSubmit={() => v.trim() && useGame.getState().submit({ kind: 'text', text: v })}
+        placeholder={q.placeholder}
+        disabled={answered}
+        tone={answered ? (ok ? 'good' : 'bad') : undefined}
+      />
+      {answered ? (
+        <p className="mt-1.5">
+          <span className="text-faint">expected </span>
+          <span className="text-good">{q.accept[0]}</span>
+          {q.accept.length > 1 && <span className="text-faint"> (also accepted: {q.accept.slice(1, 4).join(', ')})</span>}
+        </p>
+      ) : (
+        <p className="mt-1.5 text-faint">
+          {q.match === 'number' ? 'numbers only' : q.match === 'ip' ? 'dotted IPv4' : q.match === 'mac' ? 'any separator' : 'case-insensitive, small typos forgiven'}
+        </p>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------- I · filter forge
+
+function FilterBody({ q }: { q: FilterQuestion }) {
+  const index = useCapture((s) => s.index)!
+  const phase = useGame((s) => s.phase)
+  const feedback = useGame((s) => s.feedback)
+  const [v, setV] = useState('')
+  const answered = phase === 'feedback'
+  const text = answered && feedback?.answer.kind === 'filter' ? feedback.answer.text : v
+
+  // Dry-run on every keystroke: compile errors and match counts appear as you type.
+  const dry = useMemo(() => {
+    if (!text.trim()) return null
+    try {
+      const pred = compileFilter(text)
+      const matched = index.packets.filter(pred).map((p) => p.no)
+      const want = new Set(q.target)
+      const hit = matched.filter((n) => want.has(n)).length
+      return { ok: true as const, matched, hit, extra: matched.length - hit, missing: q.target.length - hit }
+    } catch (e) {
+      return { ok: false as const, error: e instanceof FilterError ? e.message : 'invalid filter' }
+    }
+  }, [text, index, q.target])
+
+  const submit = () => {
+    if (!dry?.ok) return
+    useGame.getState().submit({ kind: 'filter', text: v })
+  }
+  const preview = (f: string) => {
+    const cap = useCapture.getState()
+    cap.setFilter(f)
+    cap.setTab('packets')
+  }
+
+  return (
+    <div className="text-[12px]">
+      <p className="mb-1.5 text-faint">
+        target: <span className="text-fg tabular-nums">{q.target.length}</span> of {index.packets.length} frames · graded on exactly which frames match
+      </p>
+      <PromptInput
+        label="filter"
+        value={text}
+        onChange={setV}
+        onSubmit={submit}
+        placeholder="e.g. tcp.port == 80"
+        disabled={answered}
+        tone={answered ? ((feedback?.grade.score ?? 0) >= 1 ? 'good' : 'bad') : dry && !dry.ok ? 'bad' : undefined}
+        describedBy="forge-dry"
+      />
+      <p id="forge-dry" className="mt-1.5 min-h-[1.2em] tabular-nums" aria-live="polite">
+        {!dry ? (
+          <span className="text-faint">type a display filter; it runs against the capture as you type</span>
+        ) : !dry.ok ? (
+          <span className="text-bad">error: {dry.error}</span>
+        ) : (
+          <>
+            <span className="text-faint">matches</span> {dry.matched.length} <span className="text-faint">·</span> <span className="text-good">{dry.hit} right</span>{' '}
+            <span className="text-faint">·</span> <span className={dry.extra ? 'text-bad' : 'text-faint'}>{dry.extra} extra</span> <span className="text-faint">·</span>{' '}
+            <span className={dry.missing ? 'text-warn' : 'text-faint'}>{dry.missing} missing</span>
+          </>
+        )}
+      </p>
+      {!answered ? (
+        <div className="mt-2 flex gap-2">
+          <Btn tone="primary" className="flex-1" disabled={!dry?.ok} onClick={submit}>
+            submit filter
+          </Btn>
+          <Btn disabled={!dry?.ok} onClick={() => preview(v)} title="Apply to the packet list without submitting">
+            preview
+          </Btn>
+        </div>
+      ) : (
+        <p className="mt-1.5">
+          <span className="text-faint">reference </span>
+          <button className="text-good underline-offset-2 hover:underline" onClick={() => preview(q.reference)} title="Apply the reference filter to the packet list">
+            {q.reference}
+          </button>
+        </p>
+      )}
+      <details className="mt-3 text-[11.5px] text-faint">
+        <summary className="cursor-pointer hover:text-fg">field reference</summary>
+        <p className="mt-1 leading-relaxed">
+          protocols: eth arp ip ipv6 icmp tcp udp dns http tls dhcp ftp telnet ssh ntp snmp · ip.addr ip.src ip.dst ip.ttl · tcp.port tcp.srcport tcp.dstport tcp.flags.syn/ack/fin/reset/push tcp.len ·
+          udp.port · dns.qry.name dns.qry.type dns.flags.response dns.flags.rcode dns.a · http.request.method http.request.uri http.response.code http.host · tls.handshake.type
+          tls.handshake.extensions_server_name · arp.opcode · icmp.type · dhcp.option.dhcp · ftp.request.command · frame.len frame.number · ops == != &gt; &lt; &gt;= &lt;= contains · && || ! ()
+        </p>
+      </details>
     </div>
   )
 }

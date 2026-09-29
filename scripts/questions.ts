@@ -26,5 +26,7 @@ for (const s of SAMPLES) {
     if (q.kind === 'pick') console.log(`    answer: ${q.answer.join(',')}`)
     if (q.kind === 'order') console.log(`    ${q.cards.map((c) => c.label).join(' | ')}`)
     if (q.kind === 'field') console.log(`    keys: ${q.targetKeys} partial: ${q.partialKeys}`)
+    if (q.kind === 'text') console.log(`    accept: ${q.accept.join(' | ')} (${q.match})`)
+    if (q.kind === 'filter') console.log(`    ref: ${q.reference}  target: ${q.target.length}`)
   }
 }

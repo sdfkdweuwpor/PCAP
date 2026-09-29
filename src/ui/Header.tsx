@@ -1,11 +1,27 @@
-import { AnimatePresence, motion } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { useState } from 'react'
 import { nextRank, rankFor } from '../game/scoring'
+import { MODE_INFO } from '../game/types'
 import { useCapture } from '../store/capture'
 import { useGame } from '../store/game'
-import { useProgress } from '../store/progress'
+import { useProgress, type Settings } from '../store/progress'
 import { SettingsDialog } from './game/SettingsDialog'
-import { IconArrowLeft, IconEye, IconEyeOff, IconFlame, IconGear, IconLogo, IconMoon, IconSun } from './icons'
+import { Kbd, Meter } from './term'
+
+export function ThemeSwitch() {
+  const theme = useProgress((s) => s.settings.theme)
+  const set = useProgress((s) => s.setSettings)
+  const opts: Settings['theme'][] = ['amber', 'green', 'paper']
+  return (
+    <div role="radiogroup" aria-label="Screen" className="flex border border-line text-[11px] uppercase tracking-[0.1em]">
+      {opts.map((t) => (
+        <button key={t} role="radio" aria-checked={theme === t} onClick={() => set({ theme: t })} className={`px-2 py-0.5 ${theme === t ? 'bg-accent text-accent-ink' : 'text-muted hover:text-fg'}`}>
+          {t}
+        </button>
+      ))}
+    </div>
+  )
+}
 
 export function Header() {
   const fileName = useCapture((s) => s.fileName)
@@ -13,108 +29,119 @@ export function Header() {
   const reveal = useCapture((s) => s.revealSecrets)
   const hasCreds = index.packets.some((p) => p.facts.creds)
   const [settings, setSettings] = useState(false)
-  const theme = useProgress((s) => s.settings.theme)
-  const setS = useProgress((s) => s.setSettings)
 
   return (
-    <header className="flex min-w-0 items-center gap-2 border-b border-line bg-panel px-3 py-2">
+    <header className="flex min-w-0 items-center gap-3 border-b border-line bg-panel2 px-3 py-1.5 text-[12px]">
       <button
         onClick={() => {
           useGame.getState().toMenu()
           useCapture.getState().close()
         }}
-        className="flex shrink-0 items-center gap-2 rounded-lg p-1 hover:bg-panel3"
-        aria-label="Close capture and return to start"
-        title="Load another capture"
+        className="shrink-0 font-display text-[22px] leading-none text-accent glow hover:brightness-125"
+        aria-label="Close capture and return to the load screen"
+        title="Close capture"
       >
-        <IconArrowLeft size={14} className="text-muted" />
-        <IconLogo size={26} />
-        <span className="hidden font-bold tracking-tight xl:inline">PacketQuest</span>
+        PKTQ
       </button>
-      <div className="min-w-0 flex-1 px-1">
-        <p className="truncate font-mono text-sm" title={fileName}>
+      <span className="text-faint" aria-hidden>
+        ://
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate font-semibold" title={fileName}>
           {fileName}
         </p>
-        <p className="truncate text-[11px] text-muted">
-          {index.format.toUpperCase()} · {index.packets.length.toLocaleString()} packets · {index.conversations.length} conversations ·{' '}
-          {index.duration.toFixed(2)} s
-          {index.warnings.length > 0 && <span className="text-warn"> · {index.warnings[0]}</span>}
+        <p className="truncate text-[11px] text-faint">
+          {index.format} · {index.packets.length.toLocaleString()} frames · {index.conversations.length} streams · {index.duration.toFixed(3)}s
+          {index.warnings.length > 0 && <span className="text-warn"> · warn: {index.warnings[0]}</span>}
         </p>
       </div>
       {hasCreds && (
         <button
           onClick={() => useCapture.getState().setReveal(!reveal)}
           aria-pressed={reveal}
-          className={`flex shrink-0 items-center gap-1 rounded-lg border px-2 py-1 text-xs ${reveal ? 'border-[var(--p-clear)] text-[var(--p-clear)]' : 'border-line text-muted hover:text-fg'}`}
+          className={`hidden shrink-0 border px-2 py-0.5 text-[11px] uppercase tracking-[0.1em] sm:block ${reveal ? 'border-[var(--p-clear)] bg-[var(--p-clear)] text-bg' : 'border-line text-muted hover:text-fg'}`}
           title="Cleartext secrets are masked by default"
         >
-          {reveal ? <IconEyeOff size={14} /> : <IconEye size={14} />}
-          <span className="hidden md:inline">{reveal ? 'Hide secrets' : 'Reveal secrets'}</span>
+          secrets: {reveal ? 'shown' : 'masked'}
         </button>
       )}
-      <XpBar />
-      <button
-        className="shrink-0 rounded-lg border border-line p-1.5 text-muted hover:text-fg"
-        onClick={() => setS({ theme: theme === 'dark' ? 'light' : 'dark' })}
-        aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
-      >
-        {theme === 'dark' ? <IconSun size={15} /> : <IconMoon size={15} />}
-      </button>
-      <button className="shrink-0 rounded-lg border border-line p-1.5 text-muted hover:text-fg" onClick={() => setSettings(true)} aria-label="Settings and progress">
-        <IconGear size={15} />
+      <RankReadout />
+      <div className="hidden lg:block">
+        <ThemeSwitch />
+      </div>
+      <button className="shrink-0 border border-line px-2 py-0.5 text-[11px] uppercase tracking-[0.1em] text-muted hover:text-fg" onClick={() => setSettings(true)}>
+        cfg
       </button>
       <SettingsDialog open={settings} onClose={() => setSettings(false)} />
     </header>
   )
 }
 
-export function XpBar() {
+export function RankReadout() {
   const xp = useProgress((s) => s.xp)
   const streak = useGame((s) => s.streak)
   const rank = rankFor(xp)
   const next = nextRank(xp)
   const frac = next ? (xp - rank.minXp) / (next.minXp - rank.minXp) : 1
   return (
-    <div className="flex shrink-0 items-center gap-2" aria-label={`Rank ${rank.name}, ${xp} XP${next ? `, ${next.minXp - xp} to ${next.name}` : ''}, streak ${streak}`}>
-      <StreakFlame streak={streak} />
-      <div className="hidden w-32 sm:block">
-        <div className="flex justify-between text-[10px] font-semibold uppercase tracking-wide">
-          <span className="text-accent">{rank.name}</span>
-          <motion.span key={xp} initial={{ opacity: 0.4 }} animate={{ opacity: 1 }} className="text-muted">
-            {xp} XP
-          </motion.span>
-        </div>
-        <div className="mt-0.5 h-1.5 overflow-hidden rounded-full bg-panel3">
-          <motion.div className="h-full origin-left rounded-full bg-accent" animate={{ scaleX: Math.max(0.02, frac) }} transition={{ type: 'spring', stiffness: 120, damping: 20 }} />
-        </div>
-      </div>
+    <div className="flex shrink-0 items-center gap-3 text-[11px]" aria-label={`Rank ${rank.name}, ${xp} XP, streak ${streak}`}>
+      <span className="hidden md:inline">
+        <span className="text-faint">rank</span> <span className="text-accent">{rank.name.toLowerCase()}</span>
+      </span>
+      <span className="hidden sm:inline">
+        <Meter value={frac} width={10} label="Progress to next rank" />{' '}
+        <motion.span key={xp} initial={{ opacity: 0.3 }} animate={{ opacity: 1 }} className="tabular-nums text-fg">
+          {xp}xp
+        </motion.span>
+      </span>
+      <StreakReadout streak={streak} />
     </div>
   )
 }
 
-export function StreakFlame({ streak }: { streak: number }) {
-  const scale = 1 + Math.min(streak, 15) * 0.05
+/** Streak as five pips; fills past five show as a count. */
+export function StreakReadout({ streak }: { streak: number }) {
+  const pips = Math.min(streak, 5)
   return (
-    <div className="relative flex items-center gap-0.5" title={`Streak: ${streak}`}>
-      <motion.span
-        animate={{ scale: streak ? scale : 0.9, opacity: streak ? 1 : 0.35 }}
-        transition={{ type: 'spring', stiffness: 400, damping: 15 }}
-        className={streak >= 5 ? 'text-warn' : streak ? 'text-[var(--p-dhcp)]' : 'text-muted'}
-        style={{ filter: streak >= 5 ? 'drop-shadow(0 0 6px var(--warn))' : undefined }}
-      >
-        <IconFlame size={18} />
+    <span className="whitespace-nowrap" title={`Streak ${streak}`}>
+      <span className="text-faint">stk </span>
+      <motion.span key={streak} initial={{ opacity: 0.2 }} animate={{ opacity: 1 }} className={streak >= 5 ? 'text-warn' : 'text-accent'}>
+        {'▮'.repeat(pips)}
       </motion.span>
-      <AnimatePresence mode="popLayout">
-        <motion.span
-          key={streak}
-          initial={{ y: -8, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          exit={{ y: 8, opacity: 0 }}
-          className="min-w-3 font-mono text-xs font-semibold"
-        >
-          {streak}
-        </motion.span>
-      </AnimatePresence>
-    </div>
+      <span className="text-faint">{'▯'.repeat(5 - pips)}</span>
+      {streak > 5 && <span className="text-warn"> ×{streak}</span>}
+    </span>
+  )
+}
+
+/** vim/tmux-style status line along the bottom. */
+export function StatusBar() {
+  const selected = useCapture((s) => s.selected)
+  const index = useCapture((s) => s.index)!
+  const visible = useCapture((s) => s.visible)
+  const filter = useCapture((s) => s.filterText)
+  const field = useCapture((s) => s.selectedField)
+  const playMode = useGame((s) => s.playMode)
+  const phase = useGame((s) => s.phase)
+  const p = selected ? index.packets[selected - 1] : null
+  const modeLabel =
+    playMode === 'mixed' ? 'MIXED' : playMode === 'blitz' ? 'BLITZ' : playMode ? `${MODE_INFO[playMode].letter}:${MODE_INFO[playMode].name.toUpperCase()}` : 'IDLE'
+  return (
+    <footer className="flex h-6 shrink-0 items-center gap-4 overflow-hidden border-t border-line bg-panel2 px-3 text-[11px] text-muted" aria-label="Status">
+      <span className={`shrink-0 px-1.5 ${phase === 'menu' ? 'bg-panel3 text-muted' : 'bg-accent text-accent-ink'}`}>{modeLabel}</span>
+      <span className="shrink-0 tabular-nums">
+        frm {p ? `${p.no}/${index.packets.length}` : `–/${index.packets.length}`}
+      </span>
+      {p && (
+        <span className="hidden min-w-0 truncate md:inline">
+          {p.protocol} {p.origLen}B stream {p.streamId >= 0 ? p.streamId : '–'}
+          {field && <span className="text-fg"> · {field.key ?? field.name} @{field.offset}+{field.length}</span>}
+        </span>
+      )}
+      <span className="ml-auto hidden min-w-0 truncate lg:inline">{filter ? `filter: ${filter} (${visible?.length ?? 0})` : 'no filter'}</span>
+      <span className="hidden shrink-0 xl:inline">
+        <Kbd>/</Kbd> filter <Kbd>↑↓</Kbd> move <Kbd>↵</Kbd> answer <Kbd>n</Kbd> next
+      </span>
+    </footer>
   )
 }

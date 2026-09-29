@@ -6,9 +6,8 @@ import { useState, type ReactNode } from 'react'
 import { useCapture, type Tab } from '../store/capture'
 import { useGame } from '../store/game'
 import { GamePanel } from './game/GamePanel'
-import { Header } from './Header'
+import { Header, StatusBar } from './Header'
 import { useMediaQuery } from './hooks'
-import { IconUp } from './icons'
 import { softSpring } from './motion'
 import { ConversationsTable } from './panes/ConversationsTable'
 import { FilterBar } from './panes/FilterBar'
@@ -18,22 +17,23 @@ import { PacketDetails } from './panes/PacketDetails'
 import { PacketList } from './panes/PacketList'
 import { StreamView } from './panes/StreamView'
 import { SplitStack } from './SplitStack'
+import { Frame } from './term'
 
 const DESKTOP_TABS: { id: Tab; label: string }[] = [
-  { id: 'packets', label: 'Packets' },
-  { id: 'flow', label: 'Flow' },
-  { id: 'conversations', label: 'Conversations' },
-  { id: 'stream', label: 'Follow Stream' },
+  { id: 'packets', label: 'packets' },
+  { id: 'flow', label: 'flow graph' },
+  { id: 'conversations', label: 'conversations' },
+  { id: 'stream', label: 'follow stream' },
 ]
 
 type MobileTab = 'list' | 'details' | 'bytes' | 'flow' | 'conversations' | 'stream'
 const MOBILE_TABS: { id: MobileTab; label: string }[] = [
-  { id: 'list', label: 'List' },
-  { id: 'details', label: 'Details' },
-  { id: 'bytes', label: 'Bytes' },
-  { id: 'flow', label: 'Flow' },
-  { id: 'conversations', label: 'Convs' },
-  { id: 'stream', label: 'Stream' },
+  { id: 'list', label: 'list' },
+  { id: 'details', label: 'tree' },
+  { id: 'bytes', label: 'hex' },
+  { id: 'flow', label: 'flow' },
+  { id: 'conversations', label: 'convs' },
+  { id: 'stream', label: 'stream' },
 ]
 
 export function Workspace() {
@@ -42,23 +42,24 @@ export function Workspace() {
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex h-full flex-col overflow-hidden">
       <Header />
       {desktop ? <DesktopLayout /> : <MobileLayout />}
+      {desktop && <StatusBar />}
     </motion.div>
   )
 }
 
 function Tabs<T extends string>({ tabs, value, onChange }: { tabs: { id: T; label: string }[]; value: T; onChange: (t: T) => void }) {
   return (
-    <div role="tablist" className="scroll-thin flex gap-1 overflow-x-auto">
+    <div role="tablist" className="scroll-thin flex overflow-x-auto border-b border-line text-[12px]">
       {tabs.map((t) => (
         <button
           key={t.id}
           role="tab"
           aria-selected={value === t.id}
           onClick={() => onChange(t.id)}
-          className={`relative shrink-0 rounded-md px-3 py-1.5 text-sm font-medium ${value === t.id ? 'text-fg' : 'text-muted hover:text-fg'}`}
+          className={`relative shrink-0 border-r border-line px-3 py-1 lowercase ${value === t.id ? 'bg-panel text-accent' : 'text-muted hover:bg-panel3 hover:text-fg'}`}
         >
-          {value === t.id && <motion.span layoutId="tab-pill" className="absolute inset-0 rounded-md bg-panel3" transition={softSpring} />}
-          <span className="relative">{t.label}</span>
+          {value === t.id && <motion.span layoutId="tab-mark" className="absolute inset-x-0 -bottom-px h-0.5 bg-accent" transition={softSpring} />}
+          {t.label}
         </button>
       ))}
     </div>
@@ -73,41 +74,43 @@ function DesktopLayout() {
     <div className="flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col gap-2 p-2">
         <FilterBar />
-        <Tabs tabs={DESKTOP_TABS} value={tab} onChange={setTab} />
-        <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-line">
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.div
-              key={tab}
-              className="h-full"
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
-            >
-              {tab === 'packets' && (
-                <SplitStack defaults={[0.46, 0.32, 0.22]} labels={['Packet list', 'Packet details', 'Packet bytes']}>
-                  <PacketList />
-                  <PacketDetails />
-                  <HexPane />
-                </SplitStack>
-              )}
-              {tab === 'flow' && <FlowView />}
-              {tab === 'conversations' && <ConversationsTable />}
-              {tab === 'stream' && <StreamView />}
-            </motion.div>
-          </AnimatePresence>
+        <div className="flex min-h-0 flex-1 flex-col border border-line">
+          <Tabs tabs={DESKTOP_TABS} value={tab} onChange={setTab} />
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div key={tab} className="h-full" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.08 }}>
+                {tab === 'packets' && <PacketsPanes />}
+                {tab === 'flow' && <FlowView />}
+                {tab === 'conversations' && <ConversationsTable />}
+                {tab === 'stream' && <StreamView />}
+              </motion.div>
+            </AnimatePresence>
+          </div>
         </div>
       </div>
-      <motion.aside
-        aria-label="Game panel"
-        className="flex min-h-0 shrink-0 flex-col border-l border-line bg-panel"
-        animate={{ width: gameWide ? 520 : 400 }}
-        transition={softSpring}
-        initial={false}
-      >
+      <motion.aside aria-label="Game console" className="flex min-h-0 shrink-0 flex-col py-2 pr-2" animate={{ width: gameWide ? 540 : 420 }} transition={softSpring} initial={false}>
         <GamePanel onToggleWide={() => setGameWide((w) => !w)} wide={gameWide} />
       </motion.aside>
     </div>
+  )
+}
+
+function PacketsPanes() {
+  const shown = useCapture((s) => s.visible?.length ?? s.index?.packets.length ?? 0)
+  const selected = useCapture((s) => s.selected)
+  const len = useCapture((s) => (s.selected && s.index ? s.index.packets[s.selected - 1].capLen : 0))
+  return (
+    <SplitStack defaults={[0.46, 0.32, 0.22]} labels={['Packet list', 'Packet details', 'Packet bytes']}>
+      <Frame title="packet list" meta={`${shown} shown`} className="h-full border-0">
+        <PacketList />
+      </Frame>
+      <Frame title="details" meta={selected ? `frame ${selected}` : '—'} className="h-full border-0">
+        <PacketDetails />
+      </Frame>
+      <Frame title="bytes" meta={selected ? `${len} bytes` : '—'} className="h-full border-0">
+        <HexPane />
+      </Frame>
+    </SplitStack>
   )
 }
 
@@ -129,10 +132,10 @@ function MobileLayout() {
     stream: <StreamView />,
   }
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col gap-2 p-2 pb-24">
+    <div className="relative flex min-h-0 flex-1 flex-col gap-2 p-2 pb-10">
       <FilterBar />
       <Tabs tabs={MOBILE_TABS} value={tab} onChange={setTab} />
-      <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-line bg-panel">{panes[tab]}</div>
+      <div className="min-h-0 flex-1 overflow-hidden border border-line bg-panel">{panes[tab]}</div>
       <GameSheet />
     </div>
   )
@@ -144,8 +147,8 @@ function GameSheet() {
   const controls = useDragControls()
   return (
     <motion.div
-      className="fixed inset-x-0 bottom-0 z-40 flex max-h-[62vh] flex-col rounded-t-2xl border-t border-line bg-panel shadow-[var(--shadow)]"
-      animate={{ y: open ? 0 : 'calc(100% - 64px)' }}
+      className="fixed inset-x-0 bottom-0 z-40 flex max-h-[62vh] flex-col border-t-2 border-accent bg-panel"
+      animate={{ y: open ? 0 : 'calc(100% - 34px)' }}
       transition={softSpring}
       drag="y"
       dragListener={false}
@@ -157,24 +160,21 @@ function GameSheet() {
         else if (info.offset.y < -40) setOpen(true)
       }}
       style={{ height: '62vh' }}
-      aria-label="Game panel"
+      aria-label="Game console"
     >
       <button
         onPointerDown={(e) => controls.start(e)}
         onClick={() => setOpen((o) => !o)}
-        className="flex shrink-0 touch-none flex-col items-center gap-1 px-4 pb-2 pt-2"
+        className="flex h-[32px] shrink-0 touch-none items-center justify-between px-3 text-[11px] uppercase tracking-[0.12em] text-muted"
         aria-expanded={open}
-        aria-label={open ? 'Collapse game panel' : 'Expand game panel'}
+        aria-label={open ? 'Collapse game console' : 'Expand game console'}
       >
-        <span className="h-1 w-10 rounded-full bg-muted/60" />
-        <span className="flex items-center gap-1 text-xs text-muted">
-          <motion.span animate={{ rotate: open ? 180 : 0 }}>
-            <IconUp size={12} />
-          </motion.span>
-          {phase === 'question' ? 'Question in progress' : phase === 'feedback' ? 'See explanation' : 'Game'}
+        <span>
+          <span className="text-accent">console</span> · {phase === 'question' ? 'question open' : phase === 'feedback' ? 'answered' : phase}
         </span>
+        <span aria-hidden>{open ? '▼ hide' : '▲ show'}</span>
       </button>
-      <div className="min-h-0 flex-1 overflow-hidden">
+      <div className="min-h-0 flex-1 overflow-hidden px-2 pb-2">
         <GamePanel />
       </div>
     </motion.div>

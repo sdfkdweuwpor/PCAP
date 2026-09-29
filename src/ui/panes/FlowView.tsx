@@ -1,5 +1,5 @@
 // Animated ladder (sequence) diagram: hosts are vertical lanes, packets are arrows in time order.
-// Glowing pills travel along arrows during playback; TCP handshakes lock together like a zipper and
+// Glowing markers travel along arrows during playback; TCP handshakes lock together like a zipper and
 // the connection band fades on FIN or snaps on RST. Scrubbable timeline with speed control.
 
 import { motion } from 'framer-motion'
@@ -8,7 +8,6 @@ import type { CaptureIndex, PacketSummary } from '../../core/types'
 import { Kb } from '../../game/knowledge'
 import { useCapture } from '../../store/capture'
 import { protoVar } from '../colors'
-import { IconLock, IconPause, IconPlay, IconRefresh, IconStepBack, IconStepFwd } from '../icons'
 import { useReduced } from '../motion'
 
 const MAX_ARROWS = 250
@@ -59,11 +58,11 @@ export function FlowView(props: Props) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       {!props.compact && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-line bg-panel2 px-3 py-2 text-sm">
+        <div className="flex flex-wrap items-center gap-2 border-b border-line bg-panel2 px-2 py-1 text-[11px]">
           <label className="flex items-center gap-2">
-            <span className="text-muted">Show</span>
+            <span className="text-[10.5px] uppercase tracking-[0.12em] text-faint">show</span>
             <select
-              className="max-w-[22rem] rounded-md border border-line bg-panel px-2 py-1 font-mono text-xs"
+              className="max-w-[22rem] border border-line-strong bg-panel px-1 py-0.5 text-[11px] text-fg"
               value={scope === 'all' ? 'all' : String(flowConv ?? 'all')}
               onChange={(e) => {
                 if (e.target.value === 'all') setScope('all')
@@ -74,7 +73,7 @@ export function FlowView(props: Props) {
               }}
               aria-label="Conversation to draw"
             >
-              <option value="all">Whole capture (first {Math.min(MAX_ARROWS, index.packets.length)} packets)</option>
+              <option value="all">whole capture (first {Math.min(MAX_ARROWS, index.packets.length)} packets)</option>
               {index.conversations.slice(0, 300).map((c) => (
                 <option key={c.id} value={c.id}>
                   #{c.id} {c.app} {c.a.addr}
@@ -84,7 +83,7 @@ export function FlowView(props: Props) {
               ))}
             </select>
           </label>
-          <span className="text-xs text-muted">Click an arrow to inspect that packet.</span>
+          <span className="ml-auto text-faint">click an arrow to inspect that packet</span>
         </div>
       )}
       <Ladder
@@ -227,7 +226,7 @@ function Ladder({ index, kb, frames, compact, autoPlay, highlight, selected, pla
   const active = Math.floor(head)
   const frac = head - active
 
-  if (!n) return <p className="p-4 text-sm text-muted">No packets to draw. Select a packet or pick a conversation.</p>
+  if (!n) return <p className="p-3 text-[12px] text-faint">-- no packets to draw · select a packet or pick a conversation --</p>
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -281,7 +280,7 @@ function Ladder({ index, kb, frames, compact, autoPlay, highlight, selected, pla
           {lanes.map((l, i) => (
             <g key={l}>
               <line x1={laneX(i)} x2={laneX(i)} y1={top - 6} y2={H - 8} stroke="var(--line)" strokeWidth={2} strokeDasharray="4 5" />
-              <rect x={laneX(i) - laneW / 2} y={6} width={laneW} height={24} rx={6} fill="var(--panel-3)" stroke="var(--line)" />
+              <rect x={laneX(i) - laneW / 2} y={6} width={laneW} height={24} rx={0} fill="var(--panel-3)" stroke="var(--line)" />
               <text x={laneX(i)} y={22} textAnchor="middle" fontSize={compact ? 10 : 11} fontFamily="var(--font-mono)" fill="var(--fg)">
                 {l.length > (compact ? 15 : 17) ? l.slice(0, compact ? 14 : 16) + '…' : l}
               </text>
@@ -326,9 +325,7 @@ function Ladder({ index, kb, frames, compact, autoPlay, highlight, selected, pla
                 />
                 <motion.g initial={{ scale: reduced ? 1 : 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ delay: reduced ? 0 : 0.45, type: 'spring', stiffness: 500, damping: 18 }} style={{ originX: `${xz + 14}px`, originY: `${(y1 + y2) / 2}px` }}>
                   <foreignObject x={xz + 6} y={(y1 + y2) / 2 - 9} width={130} height={18}>
-                    <span className="flex items-center gap-1 text-[10px] font-semibold text-good">
-                      <IconLock size={11} /> established
-                    </span>
+                    <span className="flex items-center gap-1 font-mono text-[10px] font-semibold text-good">[locked] established</span>
                   </foreignObject>
                 </motion.g>
               </g>
@@ -406,7 +403,7 @@ const Arrow = memo(function Arrow({ p, label, y, x1, x2, state, progress, hl, co
         <path d={`M${x1} ${y - 6} h26 v12 h-26`} stroke={color} strokeWidth={1.8} fill="none" markerEnd="" />
       ) : (
         <>
-          {hl && <line x1={x1} y1={y} x2={tipX} y2={y} stroke={color} strokeWidth={9} strokeLinecap="round" opacity={0.22} />}
+          {hl && <line x1={x1} y1={y} x2={tipX} y2={y} stroke={color} strokeWidth={9} opacity={0.22} />}
           <line
             x1={x1}
             y1={y}
@@ -422,7 +419,7 @@ const Arrow = memo(function Arrow({ p, label, y, x1, x2, state, progress, hl, co
       )}
       {state === 'active' && !reduced && !self && (
         <g transform={`translate(${tipX} ${y})`} filter="url(#glow)">
-          <rect x={-13} y={-5} width={26} height={10} rx={5} fill={color} />
+          <rect x={-13} y={-5} width={26} height={10} rx={0} fill={color} />
         </g>
       )}
       <text
@@ -458,21 +455,24 @@ function Controls(p: {
   onRestart: () => void
   onSpeed: (s: number) => void
 }) {
-  const btn = 'grid h-7 w-7 place-items-center rounded-md border border-line text-muted hover:text-fg hover:border-accent'
+  const btn = 'h-6 min-w-7 border border-line-strong px-1.5 text-[11px] leading-none text-muted hover:border-accent hover:text-accent'
   return (
-    <div className="flex shrink-0 items-center gap-2 border-t border-line bg-panel2 px-2 py-1.5">
+    <div className="flex shrink-0 items-center gap-1.5 border-t border-line bg-panel2 px-2 py-1 font-mono">
+      <button className={btn} onClick={() => p.onSeek(0)} aria-label="Flow: jump to start">
+        |&lt;
+      </button>
       <button className={btn} onClick={() => p.onStep(-1)} aria-label="Flow: step back">
-        <IconStepBack size={13} />
+        &lt;
       </button>
       <button className={`${btn} ${p.playing ? '' : 'text-accent'}`} onClick={p.onPlay} aria-label={p.playing ? 'Pause' : 'Play'}>
-        {p.playing ? <IconPause size={13} /> : <IconPlay size={13} />}
+        {p.playing ? '❚❚' : '▶'}
       </button>
       <button className={btn} onClick={() => p.onStep(1)} aria-label="Flow: step forward">
-        <IconStepFwd size={13} />
+        &gt;
       </button>
       {!p.compact && (
         <button className={btn} onClick={p.onRestart} aria-label="Replay from start">
-          <IconRefresh size={13} />
+          ↺
         </button>
       )}
       <input
@@ -486,13 +486,13 @@ function Controls(p: {
         aria-label="Timeline"
         aria-valuetext={`${Math.floor(p.head)} of ${p.n} packets`}
       />
-      <span className="w-14 text-right font-mono text-[11px] text-muted">
+      <span className="w-14 text-right font-mono text-[11px] tabular-nums text-muted">
         {Math.min(p.n, Math.ceil(p.head))}/{p.n}
       </span>
       <select
         value={p.speed}
         onChange={(e) => p.onSpeed(Number(e.target.value))}
-        className="rounded-md border border-line bg-panel px-1 py-0.5 text-xs"
+        className="border border-line-strong bg-panel px-1 py-0.5 text-[11px] text-fg"
         aria-label="Playback speed"
       >
         {[0.5, 1, 2, 4].map((s) => (

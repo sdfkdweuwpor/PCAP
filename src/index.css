@@ -1,76 +1,120 @@
 @import 'tailwindcss';
 
-/* ---------------------------------------------------------------- theme tokens */
+/* ---------------------------------------------------------------- PacketQuest "analyst terminal" tokens
+   Three screens: amber phosphor (default), green phosphor, and paper (a light line-printer look). */
 :root,
-:root[data-theme='dark'] {
+:root[data-theme='amber'] {
   color-scheme: dark;
-  --bg: #0a0f15;
-  --panel: #0f161e;
-  --panel-2: #141d27;
-  --panel-3: #1a2531;
-  --line: #213041;
-  --fg: #d9e4ef;
-  --muted: #8193a8;
-  --faint: #56667a;
-  --accent: #34d3ff;
-  --accent-ink: #04212b;
-  --good: #3ddc84;
-  --bad: #ff5c7a;
-  --warn: #ffb547;
-  --focus: #7fe3ff;
-  --shadow: 0 10px 40px rgb(0 0 0 / 0.45);
+  --bg: #0b0906;
+  --panel: #0f0c08;
+  --panel-2: #15110b;
+  --panel-3: #1f1910;
+  --line: #3a2f1e;
+  --line-strong: #5e4b2d;
+  --fg: #f3d9aa;
+  --muted: #b39668;
+  --faint: #76644a;
+  --accent: #ffb000;
+  --accent-ink: #140d00;
+  --good: #a4ff5c;
+  --bad: #ff5a3c;
+  --warn: #ffd84d;
+  --focus: #ffd27a;
+  --glow: 0 0 6px color-mix(in srgb, var(--accent) 55%, transparent);
+  --scan: 1;
+  --shadow: 0 0 0 1px var(--line-strong), 0 18px 60px rgb(0 0 0 / 0.6);
 
-  /* Protocol palette — shared by the packet list, flow view and chips. */
-  --p-tcp: #9d8cff;
-  --p-syn: #7c8aa0;
-  --p-fin: #7c8aa0;
-  --p-rst: #ff5c7a;
-  --p-udp: #5fb8ff;
-  --p-dns: #4fd6c4;
-  --p-http: #8fe36b;
-  --p-tls: #c38bff;
-  --p-arp: #f2d36b;
-  --p-icmp: #ff9ee0;
-  --p-dhcp: #ffa45c;
-  --p-clear: #ff7a45;
-  --p-err: #ff5c7a;
-  --p-other: #8193a8;
-  --row-alpha: 13%;
+  --p-tcp: #c7a6ff;
+  --p-syn: #b9a98c;
+  --p-fin: #b9a98c;
+  --p-rst: #ff5a3c;
+  --p-udp: #7cc6ff;
+  --p-dns: #57e6c4;
+  --p-http: #a8f06a;
+  --p-tls: #f09cff;
+  --p-arp: #ffe066;
+  --p-icmp: #ff9fcf;
+  --p-dhcp: #ffae57;
+  --p-clear: #ff7a3a;
+  --p-err: #ff5a3c;
+  --p-other: #b39668;
+  --row-alpha: 10%;
 }
 
-:root[data-theme='light'] {
-  color-scheme: light;
-  --bg: #eef2f6;
-  --panel: #ffffff;
-  --panel-2: #f5f7fa;
-  --panel-3: #e9eef4;
-  --line: #d3dbe5;
-  --fg: #16202b;
-  --muted: #5a6b7e;
-  --faint: #8a99aa;
-  --accent: #0079a8;
-  --accent-ink: #ffffff;
-  --good: #11884a;
-  --bad: #d12c4c;
-  --warn: #b26b00;
-  --focus: #0079a8;
-  --shadow: 0 10px 30px rgb(20 30 45 / 0.15);
+:root[data-theme='green'] {
+  color-scheme: dark;
+  --bg: #040a06;
+  --panel: #07100a;
+  --panel-2: #0b170f;
+  --panel-3: #112117;
+  --line: #1c3524;
+  --line-strong: #2d5a3c;
+  --fg: #c8f5d2;
+  --muted: #7eb48b;
+  --faint: #4b7556;
+  --accent: #39ff88;
+  --accent-ink: #01140a;
+  --good: #d6ff4d;
+  --bad: #ff5f5f;
+  --warn: #ffd84d;
+  --focus: #9dffc4;
+  --glow: 0 0 6px color-mix(in srgb, var(--accent) 55%, transparent);
+  --scan: 1;
+  --shadow: 0 0 0 1px var(--line-strong), 0 18px 60px rgb(0 0 0 / 0.6);
 
-  --p-tcp: #6b58e8;
-  --p-syn: #5c6a80;
-  --p-fin: #5c6a80;
-  --p-rst: #d12c4c;
-  --p-udp: #1f7fd6;
-  --p-dns: #0f9c8a;
-  --p-http: #3f9a1d;
-  --p-tls: #8a3fd6;
-  --p-arp: #a88400;
-  --p-icmp: #c2378f;
-  --p-dhcp: #d56a12;
-  --p-clear: #d4481a;
-  --p-err: #d12c4c;
-  --p-other: #5a6b7e;
-  --row-alpha: 16%;
+  --p-tcp: #b9a8ff;
+  --p-syn: #9db8a4;
+  --p-fin: #9db8a4;
+  --p-rst: #ff5f5f;
+  --p-udp: #6fc8ff;
+  --p-dns: #45f0d0;
+  --p-http: #d6ff4d;
+  --p-tls: #f39cff;
+  --p-arp: #ffe066;
+  --p-icmp: #ff9fcf;
+  --p-dhcp: #ffae57;
+  --p-clear: #ff8a3a;
+  --p-err: #ff5f5f;
+  --p-other: #7eb48b;
+  --row-alpha: 10%;
+}
+
+:root[data-theme='paper'] {
+  color-scheme: light;
+  --bg: #ece5d4;
+  --panel: #f7f2e5;
+  --panel-2: #efe8d6;
+  --panel-3: #e4dac3;
+  --line: #cbbd9d;
+  --line-strong: #a8966f;
+  --fg: #221b10;
+  --muted: #6a5b41;
+  --faint: #978869;
+  --accent: #b34700;
+  --accent-ink: #fff8ea;
+  --good: #2f7a1f;
+  --bad: #b3261e;
+  --warn: #8a6100;
+  --focus: #b34700;
+  --glow: none;
+  --scan: 0;
+  --shadow: 0 0 0 1px var(--line-strong), 0 12px 40px rgb(60 40 10 / 0.18);
+
+  --p-tcp: #5b3fc4;
+  --p-syn: #6c6048;
+  --p-fin: #6c6048;
+  --p-rst: #b3261e;
+  --p-udp: #1b64b0;
+  --p-dns: #0b7f6d;
+  --p-http: #3a7d10;
+  --p-tls: #8a2fb8;
+  --p-arp: #8a6d00;
+  --p-icmp: #b3307a;
+  --p-dhcp: #b3560a;
+  --p-clear: #c2410c;
+  --p-err: #b3261e;
+  --p-other: #6a5b41;
+  --row-alpha: 15%;
 }
 
 @theme inline {
@@ -79,6 +123,7 @@
   --color-panel2: var(--panel-2);
   --color-panel3: var(--panel-3);
   --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
   --color-fg: var(--fg);
   --color-muted: var(--muted);
   --color-faint: var(--faint);
@@ -87,8 +132,17 @@
   --color-good: var(--good);
   --color-bad: var(--bad);
   --color-warn: var(--warn);
-  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  --font-sans: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  --font-display: 'VT323', 'IBM Plex Mono', ui-monospace, monospace;
+  /* Hard terminal edges everywhere (rounded-full stays for dots). */
+  --radius-xs: 0px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
 }
 
 html,
@@ -100,21 +154,66 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--fg);
-  font-family: var(--font-sans);
+  font-family: var(--font-mono);
+  font-size: 14px;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
 }
 *:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
-  border-radius: 4px;
+  outline: 1px solid var(--focus);
+  outline-offset: 1px;
 }
 ::selection {
-  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 .scroll-thin {
   scrollbar-width: thin;
-  scrollbar-color: var(--line) transparent;
+  scrollbar-color: var(--line-strong) transparent;
+}
+.glow {
+  text-shadow: var(--glow);
+}
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: 0.02em;
+}
+
+/* CRT layer: static scanlines + vignette (no flicker, so it is safe with reduced motion). */
+:root[data-crt='on'] body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 300;
+  opacity: var(--scan);
+  background:
+    repeating-linear-gradient(to bottom, transparent 0 2px, rgb(0 0 0 / 0.14) 2px 3px),
+    radial-gradient(ellipse at center, transparent 62%, rgb(0 0 0 / 0.35) 100%);
+}
+
+/* Block cursor */
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+.cursor-block {
+  display: inline-block;
+  width: 0.6em;
+  height: 1.05em;
+  vertical-align: text-bottom;
+  background: var(--accent);
+  box-shadow: var(--glow);
+  animation: blink 1.05s steps(1) infinite;
+}
+
+/* Dashed rule used inside frame title bars */
+.rule {
+  flex: 1;
+  height: 0;
+  border-top: 1px dashed var(--line-strong);
+  opacity: 0.8;
 }
 
 /* Row colouring by Wireshark-style rule */
@@ -137,7 +236,7 @@ body {
 .rc-error { --rc: var(--p-err); }
 .rc-other { --rc: var(--p-other); }
 
-/* Hex sweep: an opacity-only overlay per byte, staggered by --i. */
+/* Hex sweep: opacity/transform-only overlay per byte, staggered by --i. */
 @keyframes byte-sweep {
   0% { opacity: 0; transform: scaleX(0.2); }
   35% { opacity: 1; transform: scaleX(1); }
@@ -147,16 +246,15 @@ body {
   content: '';
   position: absolute;
   inset: 0;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 50%, transparent);
   transform-origin: left center;
-  animation: byte-sweep 520ms ease-out both;
-  animation-delay: calc(var(--i, 0) * 14ms);
+  animation: byte-sweep 520ms steps(6) both;
+  animation-delay: calc(var(--i, 0) * 16ms);
   pointer-events: none;
 }
 @keyframes row-pulse {
   0% { box-shadow: inset 0 0 0 0 transparent; }
-  30% { box-shadow: inset 0 0 0 2px var(--pulse), 0 0 18px -2px var(--pulse); }
+  30% { box-shadow: inset 0 0 0 2px var(--pulse), 0 0 16px -2px var(--pulse); }
   100% { box-shadow: inset 0 0 0 1px var(--pulse); }
 }
 .row-pulse {
@@ -172,11 +270,20 @@ body {
 .row-shake {
   animation: row-shake 420ms ease-in-out both;
 }
+/* Typewriter reveal for console lines */
+@keyframes type-in {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+.type-in {
+  animation: type-in 420ms steps(28) both;
+}
 
-/* Reduced motion: replace movement with fades / instant highlights. */
-:root[data-motion='reduced'] .row-shake,
-:root[data-motion='reduced'] .row-pulse {
+/* Reduced motion: replace movement with instant highlights. */
+:root[data-motion='reduced'] :is(.row-shake, .row-pulse, .type-in, .cursor-block) {
   animation: none;
+}
+:root[data-motion='reduced'] :is(.row-shake, .row-pulse) {
   box-shadow: inset 0 0 0 2px var(--pulse);
 }
 :root[data-motion='reduced'] .byte-sweep::after {
@@ -184,9 +291,10 @@ body {
   opacity: 0.55;
 }
 @media (prefers-reduced-motion: reduce) {
-  :root:not([data-motion='full']) .row-shake,
-  :root:not([data-motion='full']) .row-pulse {
+  :root:not([data-motion='full']) :is(.row-shake, .row-pulse, .type-in, .cursor-block) {
     animation: none;
+  }
+  :root:not([data-motion='full']) :is(.row-shake, .row-pulse) {
     box-shadow: inset 0 0 0 2px var(--pulse);
   }
   :root:not([data-motion='full']) .byte-sweep::after {

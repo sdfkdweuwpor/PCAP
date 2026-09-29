@@ -38,7 +38,7 @@ export function HexPane() {
       .map((f) => [f.offset, f.offset + f.length] as [number, number])
   }, [d, sweep, selected])
 
-  if (!selected || !d) return <p className="p-4 text-sm text-muted">Packet bytes appear here.</p>
+  if (!selected || !d) return <p className="p-3 text-[12px] text-faint">-- no frame selected --</p>
 
   const inR = (i: number, r: { offset: number; length: number } | null) => !!r && i >= r.offset && i < r.offset + r.length
   const inAny = (i: number, rs: [number, number][]) => rs.some(([a, b]) => i >= a && i < b)
@@ -77,7 +77,7 @@ export function HexPane() {
         data-off={i}
         onMouseEnter={() => onHover(i)}
         onClick={() => onClick(i)}
-        className={`relative cursor-pointer rounded-[3px] ${kind === 'hex' ? 'px-[3px]' : ''} ${
+        className={`relative cursor-pointer ${kind === 'hex' ? 'px-[3px]' : ''} ${
           sel ? 'bg-accent text-accent-ink' : hl ? 'bg-accent/30' : ''
         } ${masked ? 'text-[var(--p-clear)]' : ''} ${sw ? 'byte-sweep' : ''}`}
         style={sw ? ({ ['--i' as string]: sweepIndex(i) } as React.CSSProperties) : undefined}
@@ -89,7 +89,7 @@ export function HexPane() {
 
   return (
     <div
-      className="scroll-thin h-full overflow-auto p-2 font-mono text-[12px] leading-[1.55]"
+      className="scroll-thin h-full overflow-auto px-2 py-1 text-[12px] leading-[1.5]"
       onMouseLeave={() => onHover(null)}
       aria-label={`Packet ${selected} bytes, ${bytes.length} bytes. Click a byte to select its field.`}
     >

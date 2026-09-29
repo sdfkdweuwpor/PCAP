@@ -1,14 +1,24 @@
-import { motion } from 'framer-motion'
-import { useMemo } from 'react'
+// Exercise picker: a keyed table, not a card grid. Letter keys start a mode.
+
+import { useEffect, useMemo } from 'react'
 import { conceptWeight } from '../../game/engine'
 import { RANKS, unlockedModes } from '../../game/scoring'
 import { CONCEPT_LABEL, MODE_INFO, type Concept, type Mode } from '../../game/types'
 import { useCapture } from '../../store/capture'
 import { useGame, type PlayMode } from '../../store/game'
 import { useProgress } from '../../store/progress'
-import { IconBook, IconClock, IconLock, IconSpark } from '../icons'
+import { Kbd } from '../term'
 
-const ORDER: Mode[] = ['pick', 'says', 'means', 'field', 'order', 'anomaly', 'story']
+interface Row {
+  mode: PlayMode
+  key: string
+  name: string
+  blurb: string
+  count: number | null
+  unit: string
+}
+
+const ORDER: Mode[] = ['pick', 'says', 'means', 'field', 'order', 'anomaly', 'story', 'type', 'filter', 'drill']
 
 export function ModeMenu() {
   const bank = useCapture((s) => s.bank)!
@@ -16,83 +26,96 @@ export function ModeMenu() {
   const xp = useProgress((s) => s.xp)
   const unlockAll = useProgress((s) => s.settings.unlockAll)
   const concepts = useProgress((s) => s.concepts)
+  const bestWpm = useProgress((s) => s.drill.bestWpm)
   const unlocked = unlockedModes(xp, unlockAll)
   const start = useGame((s) => s.start)
 
-  const counts = useMemo(() => {
-    const m = new Map<Mode, number>()
-    for (const q of bank.questions) m.set(q.mode, (m.get(q.mode) ?? 0) + 1)
-    m.set('story', bank.story.steps.length)
-    return m
+  const rows = useMemo<Row[]>(() => {
+    const counts = new Map<Mode, number>()
+    for (const q of bank.questions) counts.set(q.mode, (counts.get(q.mode) ?? 0) + 1)
+    return [
+      { mode: 'mixed', key: 'm', name: 'mixed session', blurb: '12 questions from every unlocked mode, easiest first', count: bank.questions.length, unit: 'qs' },
+      ...ORDER.map((m) => ({
+        mode: m,
+        key: MODE_INFO[m].letter.toLowerCase(),
+        name: MODE_INFO[m].name.toLowerCase(),
+        blurb: MODE_INFO[m].blurb,
+        count: m === 'story' ? bank.story.steps.length : m === 'drill' ? null : (counts.get(m) ?? 0),
+        unit: m === 'story' ? 'steps' : 'qs',
+      })),
+      { mode: 'blitz', key: 'z', name: 'blitz', blurb: '60 seconds, as many as you can; speed bonus applies', count: bank.questions.length, unit: 'qs' },
+    ]
   }, [bank])
 
-  const weak = (Object.entries(concepts) as [Concept, { seen: number; correct: number }][])
-    .filter(([, s]) => s.seen >= 2)
-    .sort((a, b) => conceptWeight(b[1]) - conceptWeight(a[1]))
-    .slice(0, 3)
-    .filter(([, s]) => s.correct / s.seen < 0.75)
-
+  const isLocked = (m: PlayMode) => m !== 'mixed' && !unlocked.has(m as Mode | 'blitz')
   const lockReason = (m: PlayMode) => {
     const r = RANKS.find((x) => x.unlocks.includes(m as Mode | 'blitz'))
-    return r ? `Unlocks at ${r.name} (${r.minXp} XP)` : ''
+    return r ? `unlocks at ${r.name.toLowerCase()} (${r.minXp}xp)` : ''
   }
+  const playable = (r: Row) => !isLocked(r.mode) && r.count !== 0
 
-  const card = (m: PlayMode, title: string, blurb: string, badge: string, n: number, icon?: React.ReactNode) => {
-    const isLocked = m !== 'mixed' && !unlocked.has(m as Mode | 'blitz')
-    const empty = n === 0
-    return (
-      <motion.li key={m} variants={{ hidden: { opacity: 0, y: 8 }, show: { opacity: 1, y: 0 } }}>
-        <button
-          disabled={isLocked || empty}
-          onClick={() => start(m)}
-          className="group flex w-full items-start gap-3 rounded-xl border border-line bg-panel2 p-3 text-left transition hover:border-accent/70 disabled:cursor-not-allowed disabled:opacity-50"
-          aria-describedby={`mode-${m}`}
-        >
-          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-accent/15 font-mono text-sm font-bold text-accent">{icon ?? badge}</span>
-          <span className="min-w-0 flex-1">
-            <span className="flex items-center justify-between gap-2">
-              <span className="font-semibold">{title}</span>
-              <span className="shrink-0 text-[11px] text-muted">
-                {isLocked ? (
-                  <span className="flex items-center gap-1">
-                    <IconLock size={11} /> locked
-                  </span>
-                ) : empty ? (
-                  'none in this capture'
-                ) : m === 'story' ? (
-                  `${n} steps`
-                ) : (
-                  `${n} Qs`
-                )}
-              </span>
-            </span>
-            <span id={`mode-${m}`} className="mt-0.5 block text-xs text-muted">
-              {isLocked ? lockReason(m) : blurb}
-            </span>
-          </span>
-        </button>
-      </motion.li>
-    )
-  }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      const r = rows.find((x) => x.key === e.key.toLowerCase())
+      if (r && playable(r)) {
+        e.preventDefault()
+        start(r.mode)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
 
-  const total = bank.questions.length
+  const weak = (Object.entries(concepts) as [Concept, { seen: number; correct: number }][])
+    .filter(([, s]) => s.seen >= 2 && s.correct / s.seen < 0.75)
+    .sort((a, b) => conceptWeight(b[1]) - conceptWeight(a[1]))
+    .slice(0, 3)
+
   return (
-    <div className="scroll-thin flex-1 overflow-y-auto p-4">
-      <h2 className="text-lg font-bold">Choose a challenge</h2>
-      <p className="mb-3 text-sm text-muted">
-        {total} questions were generated from <span className="font-mono">{index.fileName}</span>
-        {index.anomalies.length ? `, including ${index.anomalies.length} detected anomal${index.anomalies.length > 1 ? 'ies' : 'y'} to hunt.` : '.'}
+    <div className="scroll-thin flex-1 overflow-y-auto p-3 text-[12.5px]">
+      <p className="text-muted">
+        <span className="text-faint">$</span> pktq exercises --from {index.fileName}
+      </p>
+      <p className="mb-2 text-faint">
+        {bank.questions.length} questions generated · {bank.story.steps.length}-step walkthrough ·{' '}
+        {index.anomalies.length ? `${index.anomalies.length} anomal${index.anomalies.length > 1 ? 'ies' : 'y'} detected (hidden)` : 'no anomalies detected'}
       </p>
       {weak.length > 0 && (
-        <p className="mb-3 rounded-lg border border-warn/40 bg-warn/10 p-2 text-xs">
-          <strong>Focus areas:</strong> {weak.map(([c]) => CONCEPT_LABEL[c]).join(', ')} — these come up more often until your accuracy improves.
+        <p className="mb-2 border-l-2 border-warn pl-2 text-[12px]">
+          <span className="text-warn">focus</span> <span className="text-muted">{weak.map(([c]) => CONCEPT_LABEL[c].toLowerCase()).join(', ')} — weighted up until accuracy improves</span>
         </p>
       )}
-      <motion.ul className="flex flex-col gap-2" initial="hidden" animate="show" variants={{ show: { transition: { staggerChildren: 0.035 } } }}>
-        {card('mixed', 'Mixed session', '12 questions across every unlocked mode, easiest first.', '★', total, <IconSpark size={16} />)}
-        {ORDER.map((m) => card(m, MODE_INFO[m].name, MODE_INFO[m].blurb, MODE_INFO[m].letter, counts.get(m) ?? 0, m === 'story' ? <IconBook size={16} /> : undefined))}
-        {card('blitz', 'Blitz', `${60} seconds. As many as you can. Speed bonus applies.`, 'B', total, <IconClock size={16} />)}
-      </motion.ul>
+      <ul className="border-t border-line" role="list">
+        {rows.map((r) => {
+          const locked = isLocked(r.mode)
+          const empty = r.count === 0
+          return (
+            <li key={r.mode} className="border-b border-line">
+              <button
+                disabled={!playable(r)}
+                onClick={() => start(r.mode)}
+                aria-describedby={`mode-${r.mode}`}
+                className="group grid w-full grid-cols-[2.2rem_1fr_auto] items-baseline gap-x-2 px-1 py-1.5 text-left enabled:hover:bg-accent enabled:hover:text-accent-ink disabled:cursor-not-allowed"
+              >
+                <span className={locked || empty ? 'opacity-40' : ''}>
+                  <Kbd>{r.key}</Kbd>
+                </span>
+                <span className={`min-w-0 ${locked || empty ? 'text-faint' : ''}`}>
+                  <span className="font-semibold">{r.name}</span>
+                  <span id={`mode-${r.mode}`} className={`block truncate text-[11.5px] ${locked || empty ? '' : 'text-muted group-hover:text-inherit'}`}>
+                    {locked ? lockReason(r.mode) : empty ? 'nothing in this capture for this mode' : r.blurb}
+                  </span>
+                </span>
+                <span className={`text-right text-[11px] tabular-nums ${locked || empty ? 'text-faint' : 'text-muted group-hover:text-inherit'}`}>
+                  {locked ? 'locked' : r.mode === 'drill' ? (bestWpm ? `best ${bestWpm}wpm` : '60s') : `${r.count} ${r.unit}`}
+                </span>
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+      <p className="mt-2 text-[11px] text-faint">press a key or click · unlock everything in cfg → unlock all modes</p>
     </div>
   )
 }

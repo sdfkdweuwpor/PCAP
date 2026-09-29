@@ -5,8 +5,9 @@
 Aimed at Security+ / Network+ learners and early SOC analysts.
 
 - **Private by design.** Captures are parsed entirely in your browser, in a Web Worker. No packet data is uploaded anywhere; after page load the app makes no network requests (fonts are bundled locally).
+- **Analyst terminal UI.** Three retro monitor themes selectable in the header or config: amber phosphor (default), green phosphor, and paper (light, line-printer look). Optional CRT scanlines. IBM Plex Mono font throughout, VT323 for the wordmark; both bundled locally. Design rules in [docs/STYLE.md](docs/STYLE.md).
 - **Wireshark feel.** Packet list with Wireshark-style coloring, a collapsible details tree, and a hex/ASCII pane with two-way highlighting. Plus a display-filter bar, Conversations, Follow Stream and an animated flow (ladder) diagram.
-- **Seven game modes**, generated from whatever you load (see below), with XP, streaks, ranks, weak-area tracking and a session summary.
+- **Ten game modes**, generated from whatever you load (see below), with XP, streaks, ranks, weak-area tracking and a session summary.
 
 ## Quick start
 
@@ -57,6 +58,9 @@ Requires Node 20+. Works in current Chrome, Firefox, Safari and Edge, on desktop
 | E | Put It In Order | Drag shuffled cards (DNS → SYN → SYN-ACK → … → FIN) into wire order |
 | F | Spot the Anomaly | Identify the attack, find evidence, choose the next step. Only asked when a heuristic actually detected it. |
 | G | Story Mode | A narrated, packet-by-packet walkthrough with quick checks |
+| H | Type the Answer | Read a value from the capture (TTL, port, domain, resolved IP, status code, SNI, cipher suite, DHCP-offered IP, FTP username, impostor MAC, scan counts) and type it. Numbers, IPs and MACs are normalised; small letter typos are forgiven, but a digit typo in a short answer is not. |
+| I | Filter Forge | Write a display filter. It is compiled and dry-run on every keystroke (matches / right / extra / missing), graded on exactly which frames it matches: exact = full credit, Jaccard ≥ 0.6 = half. A reference filter is shown afterwards. |
+| J | Keystroke Drill | 60-second typing drill on terms, filter fields and values from the loaded capture. Per-character feedback, live WPM/accuracy, best WPM saved, XP awarded (capped at 120). |
 | ⏱ | Blitz | 60 seconds, as many as you can |
 
 Ranks run **Recruit → Analyst (250 XP) → Hunter (700 XP) → Threat Hunter (1500 XP)**, and each rank unlocks modes (Settings → *Unlock all modes* for instructors). XP scales with difficulty tier, speed and streak; a hint halves it. Concepts you miss come up more often. Progress lives in `localStorage` (the app still works if storage is blocked) and can be exported/imported as JSON or reset.
