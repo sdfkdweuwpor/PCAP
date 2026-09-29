@@ -67,21 +67,28 @@ function parseInWorker(w: Worker, bytes: Uint8Array, fileName: string, onProgres
         for (const p of m.packets) packets.push(p)
         onProgress({ phase: 'analyzing', fraction: 1, packets: packets.length })
       } else {
-        w.removeEventListener('message', onMessage)
-        w.removeEventListener('error', onError)
+        detach()
         if (m.type === 'done') resolve({ ...m.index, packets })
         else reject(new ParseError(m.message, m.kind))
       }
     }
-    const onError = (e: ErrorEvent) => {
-      w.removeEventListener('message', onMessage)
-      w.removeEventListener('error', onError)
+    // "worker:" errors make the caller fall back to parsing on the main thread.
+    const fail = (why: string) => {
+      detach()
       worker?.terminate()
       worker = null
-      reject(new ParseError(`worker: ${e.message || 'failed to start'}`, 'internal'))
+      reject(new ParseError(`worker: ${why}`, 'internal'))
+    }
+    const onError = (e: ErrorEvent) => fail(e.message || 'failed to start')
+    const onMessageError = () => fail('a message could not be deserialised')
+    const detach = () => {
+      w.removeEventListener('message', onMessage)
+      w.removeEventListener('error', onError)
+      w.removeEventListener('messageerror', onMessageError)
     }
     w.addEventListener('message', onMessage)
     w.addEventListener('error', onError)
+    w.addEventListener('messageerror', onMessageError)
     const req: WorkerRequest = { type: 'parse', id, buffer: copy, fileName }
     w.postMessage(req, [copy])
   })

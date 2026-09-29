@@ -100,6 +100,7 @@ export function dissectTcp(ctx: DissectCtx, o: number, len: number): Payload {
   const ack = u32(b, o + 8)
   const offFlags = u16(b, o + 12)
   const hlen = ((offFlags >> 12) & 0xf) * 4
+  if (hlen < 20) throw new Error(`Invalid TCP data offset (${hlen} bytes, minimum 20)`)
   const fl = offFlags & 0x1ff
   const win = u16(b, o + 14)
   const csum = u16(b, o + 16)

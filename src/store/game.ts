@@ -42,6 +42,8 @@ interface GameStore {
   milestone: number | null
   storyIdx: number
   storyChecked: number | null
+  /** Choice made at each answered story step, so revisiting a step shows it instead of paying XP again. */
+  storyAnswers: Record<number, number>
   /** Pending field selection for Field Hunt. */
   fieldPick: { key?: string; offset?: number; via: 'tree' | 'hex'; name: string } | null
 
@@ -58,6 +60,16 @@ interface GameStore {
   storyCheck: (choice: number) => void
   /** Records a finished keystroke drill; returns XP awarded. */
   finishDrill: (wpm: number, accuracy: number) => number
+}
+
+// Timers started for one question (wrong-answer glide, blitz auto-advance) must never act on a later one.
+let pending: ReturnType<typeof setTimeout>[] = []
+function later(fn: () => void, ms: number) {
+  pending.push(setTimeout(fn, ms))
+}
+function cancelPending() {
+  pending.forEach(clearTimeout)
+  pending = []
 }
 
 const ALL_MODES: Mode[] = ['pick', 'says', 'means', 'field', 'order', 'anomaly', 'type', 'filter']
@@ -98,11 +110,13 @@ export const useGame = create<GameStore>((set, get) => ({
   milestone: null,
   storyIdx: 0,
   storyChecked: null,
+  storyAnswers: {},
   fieldPick: null,
 
   start(mode) {
     const bank = useCapture.getState().bank
     if (!bank) return
+    cancelPending()
     const now = Date.now()
     if (mode === 'drill') {
       useCapture.getState().lock(null)
@@ -110,7 +124,7 @@ export const useGame = create<GameStore>((set, get) => ({
       return
     }
     if (mode === 'story') {
-      set({ playMode: 'story', phase: 'story', storyIdx: 0, storyChecked: null, results: [], sessionXp: 0, streak: 0, sessionBest: 0, sessionStart: now })
+      set({ playMode: 'story', phase: 'story', storyIdx: 0, storyChecked: null, storyAnswers: {}, results: [], sessionXp: 0, streak: 0, sessionBest: 0, sessionStart: now })
       const first = bank.story.steps[0]
       if (first) useCapture.getState().showMe(first.packet)
       return
@@ -170,7 +184,7 @@ export const useGame = create<GameStore>((set, get) => ({
       else {
         cap.flashRows(a.kind === 'pick' ? a.packets : [], 'wrong')
         // After the shake, glide the highlight to the right packet.
-        setTimeout(() => {
+        later(() => {
           useCapture.getState().flashRows(answerFrames, 'answer')
           useCapture.getState().select(answerFrames[0])
         }, 650)
@@ -187,7 +201,10 @@ export const useGame = create<GameStore>((set, get) => ({
       milestone: STREAK_MILESTONES.includes(streak) ? streak : null,
     })
     // Blitz keeps momentum: auto-advance after a short beat.
-    if (s.playMode === 'blitz') setTimeout(() => get().phase === 'feedback' && get().next(), g.score >= 1 ? 700 : 1600)
+    if (s.playMode === 'blitz') {
+      const at = s.idx
+      later(() => get().phase === 'feedback' && get().idx === at && get().next(), g.score >= 1 ? 700 : 1600)
+    }
   },
 
   useHint() {
@@ -195,6 +212,7 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   next() {
+    cancelPending()
     const s = get()
     const blitzOver = s.blitzEndsAt !== null && Date.now() >= s.blitzEndsAt
     if (s.idx + 1 >= s.deck.length || blitzOver) return get().finish()
@@ -204,6 +222,8 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   finish() {
+    cancelPending()
+    useCapture.getState().flashRows(null)
     const s = get()
     const correct = s.results.filter((r) => r.score >= 1).length
     if (s.results.length) {
@@ -222,7 +242,9 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   toMenu() {
+    cancelPending()
     useCapture.getState().lock(null)
+    useCapture.getState().flashRows(null)
     set({ phase: 'menu', playMode: null, deck: [], idx: 0, feedback: null, blitzEndsAt: null, fieldPick: null })
   },
 
@@ -237,7 +259,7 @@ export const useGame = create<GameStore>((set, get) => ({
   storyGo(i) {
     const steps = useCapture.getState().bank?.story.steps ?? []
     const idx = Math.max(0, Math.min(steps.length - 1, i))
-    set({ storyIdx: idx, storyChecked: null })
+    set((s) => ({ storyIdx: idx, storyChecked: s.storyAnswers[idx] ?? null }))
     const st = steps[idx]
     if (st) useCapture.getState().showMe(st.packet)
   },
@@ -254,7 +276,7 @@ export const useGame = create<GameStore>((set, get) => ({
   storyCheck(choice) {
     const s = get()
     const step = useCapture.getState().bank?.story.steps[s.storyIdx]
-    if (!step?.check || s.storyChecked !== null) return
+    if (!step?.check || s.storyChecked !== null || s.storyAnswers[s.storyIdx] !== undefined) return
     const ok = choice === step.check.correct
     const streak = ok ? s.streak + 1 : 0
     const xp = xpFor({ tier: step.check.tier, score: ok ? 1 : 0, seconds: 30, streak: s.streak, hintUsed: false })
@@ -263,6 +285,7 @@ export const useGame = create<GameStore>((set, get) => ({
     const after = rankFor(useProgress.getState().xp)
     set({
       storyChecked: choice,
+      storyAnswers: { ...s.storyAnswers, [s.storyIdx]: choice },
       streak,
       sessionBest: Math.max(s.sessionBest, streak),
       sessionXp: s.sessionXp + xp.total,

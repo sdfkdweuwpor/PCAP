@@ -55,7 +55,7 @@ const HUNTS: HuntSpec[] = [
   {
     kinds: ['tls-ch'],
     key: 'tls.handshake.extensions_server_name',
-    partial: ['tls.handshake.extension', 'tls.handshake.extensions_server_name_list'],
+    partial: ['tls.handshake.extensions_server_name_list'],
     label: 'Server Name (SNI)',
     prompt: (n) => `Find the SNI — the website name — inside the ClientHello #${n}.`,
     hint: 'Expand Transport Layer Security → Handshake → Extension: server_name.',
@@ -163,7 +163,7 @@ const HUNTS: HuntSpec[] = [
   {
     kinds: ['ftp-pass'],
     key: 'ftp.request.arg',
-    partial: ['ftp.request', 'ftp.request.command'],
+    partial: ['ftp.request'],
     label: 'Password argument',
     prompt: (n) => `In packet #${n}, click the bytes that contain the cleartext password.`,
     hint: 'It is the argument after the PASS command. The UI masks it, but the bytes are there.',

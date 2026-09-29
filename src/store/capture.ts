@@ -4,7 +4,7 @@
 import { create } from 'zustand'
 import { dissectFrame } from '../core/dissect'
 import { compileFilter, FilterError } from '../core/filter/filter'
-import { frameBytes, isnMapFromSummaries } from '../core/index/indexer'
+import { frameBytes, isnForPacket } from '../core/index/indexer'
 import type { CaptureIndex, Dissection, PacketSummary } from '../core/types'
 import { buildQuestionBank, type QuestionBank } from '../game/engine'
 import { getSample } from '../samples/samples'
@@ -80,8 +80,9 @@ interface CaptureStore {
 }
 
 let cache = new Map<number, Dissection>()
-let isn = new Map<string, number>()
 let token = 0
+/** Increments per load so a slow parse can't overwrite a newer capture. */
+let loadSeq = 0
 
 export function getPacket(no: number): PacketSummary | undefined {
   return useCapture.getState().index?.packets[no - 1]
@@ -101,7 +102,7 @@ export function getDissection(no: number): Dissection | null {
   if (hit) return hit
   const p = index.packets[no - 1]
   if (!p) return null
-  const d = dissectFrame(frameBytes(bytes, p), { no, ts: p.ts, relTime: p.relTime, origLen: p.origLen, linkType: p.linkType }, { tcpIsn: isn })
+  const d = dissectFrame(frameBytes(bytes, p), { no, ts: p.ts, relTime: p.relTime, origLen: p.origLen, linkType: p.linkType }, { tcpIsn: isnForPacket(p) })
   if (cache.size > 2000) cache = new Map()
   cache.set(no, d)
   return d
@@ -166,11 +167,13 @@ export const useCapture = create<CaptureStore>((set, get) => ({
 
   async loadBytes(bytes, name) {
     const t0 = performance.now()
+    const seq = ++loadSeq
+    const current = () => seq === loadSeq
     set({ status: 'loading', progress: { phase: 'reading', fraction: 0, packets: 0 }, error: null, fileName: name })
     try {
-      const index = await parseCapture(bytes, name, (progress) => set({ progress }))
+      const index = await parseCapture(bytes, name, (progress) => current() && set({ progress }))
+      if (!current()) return
       cache = new Map()
-      isn = isnMapFromSummaries(index.packets)
       set({
         index,
         bytes,
@@ -189,6 +192,9 @@ export const useCapture = create<CaptureStore>((set, get) => ({
         streamConv: null,
         lockedTo: null,
         bank: null,
+        sweep: null,
+        flash: null,
+        revealSecrets: false,
         loadMs: performance.now() - t0,
       })
       // Questions are generated after the UI can render the capture.
@@ -198,6 +204,7 @@ export const useCapture = create<CaptureStore>((set, get) => ({
         set({ bank })
       }, 0)
     } catch (e) {
+      if (!current()) return
       const kind = e instanceof ParseError ? e.kind : 'internal'
       const message = e instanceof Error ? e.message : String(e)
       set({ status: 'error', error: { message, kind }, index: null, bytes: null })
@@ -206,7 +213,24 @@ export const useCapture = create<CaptureStore>((set, get) => ({
 
   close() {
     cache = new Map()
-    set({ status: 'idle', index: null, bytes: null, bank: null, error: null, progress: null, fileName: '', selected: null, lockedTo: null })
+    loadSeq++
+    set({
+      status: 'idle',
+      index: null,
+      bytes: null,
+      bank: null,
+      error: null,
+      progress: null,
+      fileName: '',
+      selected: null,
+      lockedTo: null,
+      sweep: null,
+      flash: null,
+      revealSecrets: false,
+      filterText: '',
+      filterError: null,
+      visible: null,
+    })
   },
 
   select(no) {
@@ -214,7 +238,11 @@ export const useCapture = create<CaptureStore>((set, get) => ({
     if (locked !== null && no !== locked) return
     set({ selected: no, selectedField: null, hover: null, hoverKey: null })
     const p = no ? get().index?.packets[no - 1] : undefined
-    if (p && p.streamId >= 0) set({ flowConv: p.streamId })
+    if (p && p.streamId >= 0) {
+      // Flow graph and follow-stream both track the selected packet's conversation.
+      const proto = get().index?.conversations[p.streamId]?.proto
+      set({ flowConv: p.streamId, ...(proto === 'TCP' || proto === 'UDP' ? { streamConv: p.streamId } : {}) })
+    }
   },
   toggleMulti(no) {
     const m = get().multi
@@ -257,6 +285,7 @@ export const useCapture = create<CaptureStore>((set, get) => ({
   },
   showMe(packet, fieldKeys = []) {
     const p = get().index?.packets[packet - 1]
+    if (!p) return
     set({
       tab: 'packets',
       selected: packet,

@@ -117,7 +117,8 @@ export function dissectNull(ctx: DissectCtx, o: number): NextLayer {
   let fam = u32le(b, o)
   if (fam > 0xffff) fam = u32(b, o)
   const l = layer(ctx, 'Null/Loopback', 'null', o, 4)
-  const famName = fam === 2 ? 'IP' : fam === 24 || fam === 28 || fam === 30 ? 'IPv6' : 'Unknown'
+  // AF_INET6 differs by OS: 24/28/30 on the BSDs and macOS, 10 on Linux, 23 on Windows (Npcap).
+  const famName = fam === 2 ? 'IP' : [10, 23, 24, 28, 30].includes(fam) ? 'IPv6' : 'Unknown'
   add(l, 'Family', 'null.family', `${famName} (${fam})`, o, 4)
   ctx.protocol = 'Loopback'
   const etherType = fam === 2 ? 0x0800 : famName === 'IPv6' ? 0x86dd : 0

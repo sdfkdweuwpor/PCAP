@@ -8,18 +8,62 @@ import { useProgress, type Settings } from '../../store/progress'
 import { useReduced } from '../motion'
 import { Btn, Meter } from '../term'
 
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="file"]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
 export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const p = useProgress()
   const reduced = useReduced()
   const [msg, setMsg] = useState<string | null>(null)
   const [confirmReset, setConfirmReset] = useState(false)
+  const [wasOpen, setWasOpen] = useState(open)
   const file = useRef<HTMLInputElement>(null)
   const panel = useRef<HTMLDivElement>(null)
 
+  // Closing forgets the status line and any half-finished "erase all progress?" confirmation.
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (!open) {
+      setMsg(null)
+      setConfirmReset(false)
+    }
+  }
+
+  // Focus moves into the dialog on open and back to whatever opened it on close.
   useEffect(() => {
     if (!open) return
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
     panel.current?.focus()
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    return () => {
+      if (opener?.isConnected) opener.focus()
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') return onClose()
+      if (e.key !== 'Tab') return
+      // Trap Tab inside the dialog: wrap at the ends and pull stray focus back in.
+      const root = panel.current
+      if (!root) return
+      const nodes = [...root.querySelectorAll<HTMLElement>(FOCUSABLE)]
+      const first = nodes[0]
+      const last = nodes[nodes.length - 1]
+      const active = document.activeElement
+      if (!first || !last) {
+        e.preventDefault()
+        root.focus()
+      } else if (!root.contains(active) || active === root) {
+        e.preventDefault()
+        ;(e.shiftKey ? last : first).focus()
+      } else if (e.shiftKey && active === first) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
@@ -34,7 +78,11 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
     a.click()
     setTimeout(() => URL.revokeObjectURL(a.href), 1000)
     // Sandboxed embeds block downloads, so also put the JSON on the clipboard.
-    navigator.clipboard?.writeText(json).then(
+    if (!navigator.clipboard) {
+      setMsg('error: clipboard unavailable; use a browser that allows downloads')
+      return
+    }
+    navigator.clipboard.writeText(json).then(
       () => setMsg('[ ok ] exported; JSON also copied to clipboard'),
       () => setMsg('[ ok ] export started'),
     )
@@ -112,6 +160,10 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
                   <Row k="show timer">
                     <Choice label="show timer" value={p.settings.showTimer ? 'on' : 'off'} options={onOff} onChange={(v) => set({ showTimer: v === 'on' })} />
                   </Row>
+                  <Row k="shortcuts">
+                    <Choice label="single-key shortcuts" value={p.settings.hotkeys ? 'on' : 'off'} options={onOff} onChange={(v) => set({ hotkeys: v === 'on' })} />
+                    <p className="mt-0.5 text-[11px] text-faint"># turn off if shortcuts clash with your screen reader or keyboard</p>
+                  </Row>
                   <Row k="unlock all">
                     <Choice label="unlock all modes" value={p.settings.unlockAll ? 'on' : 'off'} options={onOff} onChange={(v) => set({ unlockAll: v === 'on' })} />
                     <span className="ml-2 text-faint"># instructor mode</span>
@@ -149,7 +201,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
                     <span className="tabular-nums">{p.drill.bestWpm}</span> <span className="text-faint">best</span>
                   </Row>
                   <Row k="drill acc">
-                    <span className="tabular-nums">{p.drill.bestAccuracy}%</span> <span className="text-faint">best</span>
+                    <span className="tabular-nums">{Math.round(p.drill.bestAccuracy * 100)}%</span> <span className="text-faint">best</span>
                   </Row>
                   <Row k="drill runs">
                     <span className="tabular-nums">{p.drill.runs}</span>

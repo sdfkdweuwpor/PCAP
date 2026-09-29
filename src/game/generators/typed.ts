@@ -135,7 +135,7 @@ export const typedGenerators: Generator[] = [
         concept: 'dns',
         prompt: `Packet #${p.no} is a failed lookup. What is the common name for its DNS reply code?`,
         hint: 'RCODE 3 has a short, well-known name starting with NX…',
-        accept: ['NXDOMAIN', 'No such name', 'NX domain', '3'],
+        accept: ['NXDOMAIN', 'No such name', 'NX domain', 'Non-Existent Domain', 'Name error', '3'],
         match: 'fuzzy',
         placeholder: 'reply code name',
         packet: p.no,
@@ -411,11 +411,30 @@ function lev(a: string, b: string): number {
   return dp[a.length][b.length]
 }
 
-const macNorm = (s: string) =>
-  s
-    .toLowerCase()
-    .replace(/[^0-9a-f]/g, '')
-    .padStart(12, '0')
+/** Twelve hex digits with the separators removed, or null when it isn't a MAC address. */
+const macNorm = (s: string) => {
+  const h = s.toLowerCase().replace(/[\s:.-]/g, '')
+  return /^[0-9a-f]{12}$/.test(h) ? h : null
+}
+
+const HOSTNAME = /^[a-z0-9-]+(\.[a-z0-9-]+)+\.?$/i
+/** "https://www.example.com/path" → "www.example.com", for answers that are host names. */
+const hostOnly = (s: string) => s.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').replace(/[/?#].*$/, '').replace(/:\d+$/, '')
+
+/** Identifier matching (cipher suite names): same tokens, digits exact, one slip allowed in a word of 5+ letters. */
+function tokensClose(want: string, got: string): boolean {
+  const split = (x: string) => normalise(x).split(/[_\s-]+/).filter(Boolean)
+  const a = split(want)
+  const b = split(got)
+  if (a.length !== b.length) return false
+  let slips = 0
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] === b[i]) continue
+    if (/\d/.test(a[i]) || /\d/.test(b[i]) || a[i].length < 5 || lev(a[i], b[i]) > 1) return false
+    slips++
+  }
+  return slips <= 2
+}
 
 /** Returns 1 for correct, 0 for wrong, plus a note when a typo was forgiven. */
 export function gradeText(q: TextQuestion, input: string): { score: number; note: string } {
@@ -423,31 +442,36 @@ export function gradeText(q: TextQuestion, input: string): { score: number; note
   if (!raw) return { score: 0, note: 'Nothing typed.' }
   switch (q.match) {
     case 'number': {
-      const n = raw.match(/\d+/)?.[0]
-      return { score: n !== undefined && q.accept.includes(String(Number(n))) ? 1 : 0, note: '' }
+      // Exactly one non-negative whole number ("port 443" is fine; "443 or 80" and "-3" are not).
+      const ns = raw.match(/\d+(\.\d+)?/g) ?? []
+      const ok = ns.length === 1 && !ns[0].includes('.') && !/-\s*\d/.test(raw) && q.accept.includes(String(Number(ns[0])))
+      return { score: ok ? 1 : 0, note: '' }
     }
     case 'ip': {
       const v = raw.replace(/\s/g, '').replace(/\.$/, '')
       const ok = q.accept.some((a) => a.split('.').map(Number).join('.') === v.split('.').map(Number).join('.'))
       return { score: ok ? 1 : 0, note: '' }
     }
-    case 'mac':
-      return { score: q.accept.some((a) => macNorm(a) === macNorm(raw)) ? 1 : 0, note: '' }
+    case 'mac': {
+      const m = macNorm(raw)
+      return { score: m !== null && q.accept.some((a) => macNorm(a) === m) ? 1 : 0, note: '' }
+    }
     case 'exact':
       return { score: q.accept.some((a) => normalise(a) === normalise(raw)) ? 1 : 0, note: '' }
     case 'fuzzy': {
-      const v = normalise(raw)
-      if (q.accept.some((a) => normalise(a) === v)) return { score: 1, note: '' }
+      const typed = q.accept.every((a) => HOSTNAME.test(a)) ? hostOnly(raw) : raw
+      const v = normalise(typed)
+      if (q.accept.some((a) => normalise(a) === v)) return { score: 1, note: typed === raw ? '' : 'Accepted (just the host name was needed).' }
       const squash = (s: string) => normalise(s).replace(/[^a-z0-9]/g, '')
-      if (q.accept.some((a) => squash(a) === squash(raw))) return { score: 1, note: 'Accepted (punctuation/spacing differs).' }
-      const tolerance = (len: number) => (len >= 16 ? 2 : len >= 5 ? 1 : 0)
-      // In short answers the digits carry the meaning ("TLS 1.2" must never pass for "TLS 1.3"), so typos are
-      // forgiven only in letters. Long names (cipher suites) tolerate small slips anywhere.
+      if (q.accept.some((a) => squash(a) === squash(typed))) return { score: 1, note: 'Accepted (punctuation/spacing differs).' }
+      // Digits carry the meaning ("TLS 1.2" must never pass for "TLS 1.3", SHA256 not for SHA265), so typos are
+      // forgiven only in letters. Identifiers are compared token by token so a slip can't hide in a short token.
       const digits = (s: string) => s.replace(/\D/g, '')
       const close = q.accept.find((a) => {
+        if (a.includes('_')) return tokensClose(a, typed)
         const na = normalise(a)
-        if (na.length < 16 && digits(na) !== digits(v)) return false
-        return lev(na, v) <= tolerance(na.length)
+        if (digits(na) !== digits(v)) return false
+        return lev(na, v) <= (na.length >= 16 ? 2 : na.length >= 5 ? 1 : 0)
       })
       if (close) return { score: 1, note: `Accepted despite a small typo (expected "${close}").` }
       return { score: 0, note: '' }

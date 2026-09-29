@@ -1,6 +1,6 @@
 // Dev aid: prints the question bank for each sample.
 import { dissectFrame } from '../src/core/dissect'
-import { buildIndex, frameBytes, isnMapFromSummaries } from '../src/core/index/indexer'
+import { buildIndex, frameBytes, isnForPacket } from '../src/core/index/indexer'
 import { buildQuestionBank } from '../src/game/engine'
 import { SAMPLES } from '../src/samples/samples'
 
@@ -10,10 +10,9 @@ for (const s of SAMPLES) {
   if (only && s.id !== only) continue
   const buf = s.build()
   const idx = buildIndex(buf, s.fileName)
-  const isn = isnMapFromSummaries(idx.packets)
   const dissect = (no: number) => {
     const p = idx.packets[no - 1]
-    return dissectFrame(frameBytes(buf, p), { no, ts: p.ts, relTime: p.relTime, origLen: p.origLen, linkType: p.linkType }, { tcpIsn: isn })
+    return dissectFrame(frameBytes(buf, p), { no, ts: p.ts, relTime: p.relTime, origLen: p.origLen, linkType: p.linkType }, { tcpIsn: isnForPacket(p) })
   }
   const bank = buildQuestionBank(idx, dissect)
   const modes = new Map<string, number>()

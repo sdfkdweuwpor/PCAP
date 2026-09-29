@@ -2,11 +2,12 @@
 // and the game as a draggable bottom sheet.
 
 import { AnimatePresence, motion, useDragControls } from 'framer-motion'
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useCapture, type Tab } from '../store/capture'
 import { useGame } from '../store/game'
 import { GamePanel } from './game/GamePanel'
 import { Header, StatusBar } from './Header'
+import { setConsoleVisible } from './hotkeys'
 import { useMediaQuery } from './hooks'
 import { softSpring } from './motion'
 import { ConversationsTable } from './panes/ConversationsTable'
@@ -114,14 +115,25 @@ function PacketsPanes() {
   )
 }
 
+const PACKET_PANES: MobileTab[] = ['list', 'details', 'bytes']
+
 function MobileLayout() {
-  const [tab, setTab] = useState<MobileTab>('list')
+  const [tab, setTabState] = useState<MobileTab>('list')
   const desktopTab = useCapture((s) => s.tab)
-  // Keep mobile tabs in sync when the game switches panes (e.g. "Show me").
+  // Keep mobile tabs in sync when the game switches panes (e.g. "Show me"). The store's "packets" tab covers
+  // list, tree and hex, so it only moves the view when another pane is showing.
   const [lastDesktop, setLastDesktop] = useState(desktopTab)
   if (desktopTab !== lastDesktop) {
     setLastDesktop(desktopTab)
-    if (desktopTab === 'flow' || desktopTab === 'conversations' || desktopTab === 'stream') setTab(desktopTab)
+    if (desktopTab !== 'packets') setTabState(desktopTab)
+    else if (!PACKET_PANES.includes(tab)) setTabState('list')
+  }
+  // Tell the store too, so the next game-driven switch to the same pane still registers as a change.
+  const setTab = (t: MobileTab) => {
+    setTabState(t)
+    const store: Tab = PACKET_PANES.includes(t) ? 'packets' : (t as Tab)
+    setLastDesktop(store)
+    useCapture.getState().setTab(store)
   }
   const panes: Record<MobileTab, ReactNode> = {
     list: <PacketList />,
@@ -145,6 +157,11 @@ function GameSheet() {
   const [open, setOpen] = useState(true)
   const phase = useGame((s) => s.phase)
   const controls = useDragControls()
+  // Console shortcuts (answer keys, n for next) must not fire while the sheet is collapsed.
+  useEffect(() => {
+    setConsoleVisible(open)
+    return () => setConsoleVisible(true)
+  }, [open])
   return (
     <motion.div
       className="fixed inset-x-0 bottom-0 z-40 flex max-h-[62vh] flex-col border-t-2 border-accent bg-panel"
@@ -174,7 +191,7 @@ function GameSheet() {
         </span>
         <span aria-hidden>{open ? '▼ hide' : '▲ show'}</span>
       </button>
-      <div className="min-h-0 flex-1 overflow-hidden px-2 pb-2">
+      <div className="min-h-0 flex-1 overflow-hidden px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]" inert={!open}>
         <GamePanel />
       </div>
     </motion.div>

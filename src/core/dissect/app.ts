@@ -77,13 +77,14 @@ export function dissectDhcp(ctx: DissectCtx, o: number, len: number): void {
         add(l, 'Option: (255) End', 'dhcp.option.end', 255, p, 1)
         break
       }
+      if (p + 1 >= end) break
       const olen = b[p + 1]
       const d = p + 2
       if (d + olen > end) break
       const name = DHCP_OPTS[code] ?? 'Unknown'
       let value = `${olen} bytes`
       let key = `dhcp.option.${code}`
-      if (code === 53) {
+      if (code === 53 && olen >= 1) {
         facts.msgType = DHCP_TYPES[b[d]] ?? `Type ${b[d]}`
         value = `${facts.msgType} (${b[d]})`
         key = 'dhcp.option.dhcp'
@@ -185,11 +186,11 @@ export function dissectTextProto(ctx: DissectCtx, proto: TextProto, o: number, l
     if (isRequest) {
       let cmdLine = line
       let tagLen = 0
-      if (proto === 'IMAP') {
-        const sp = line.indexOf(' ')
-        tagLen = sp + 1
-        add(node, 'Request Tag', 'imap.request_tag', line.slice(0, sp), p, sp)
-        cmdLine = line.slice(sp + 1)
+      const tagEnd = proto === 'IMAP' ? line.indexOf(' ') : -1
+      if (tagEnd > 0) {
+        tagLen = tagEnd + 1
+        add(node, 'Request Tag', 'imap.request_tag', line.slice(0, tagEnd), p, tagEnd)
+        cmdLine = line.slice(tagEnd + 1)
       }
       const sp = cmdLine.indexOf(' ')
       const cmd = (sp < 0 ? cmdLine : cmdLine.slice(0, sp)).toUpperCase()
@@ -198,7 +199,7 @@ export function dissectTextProto(ctx: DissectCtx, proto: TextProto, o: number, l
       f.arg = arg
       add(node, 'Request command', `${key}.request.command`, cmd, p + tagLen, cmd.length)
       if (arg) {
-        const isPass = cmd === 'PASS' || (proto === 'IMAP' && cmd === 'LOGIN')
+        const isPass = cmd === 'PASS' || (proto === 'IMAP' && cmd === 'LOGIN') || (proto === 'SMTP' && cmd === 'AUTH' && /^PLAIN\s/i.test(arg))
         add(node, 'Request arg', `${key}.request.arg`, arg, p + tagLen + cmd.length + 1, arg.length, isPass ? { secret: true, warn: true } : {})
       }
       detectCreds(ctx, proto, cmd, arg)
@@ -226,7 +227,7 @@ export function dissectTextProto(ctx: DissectCtx, proto: TextProto, o: number, l
   if (firstFacts) {
     ctx.facts.app = firstFacts
     const { command, code } = firstFacts
-    if (isRequest && (command === 'PASS' || (proto === 'IMAP' && command === 'LOGIN'))) ctx.color = 'cleartext'
+    if (isRequest && (command === 'PASS' || (proto === 'IMAP' && command === 'LOGIN') || ctx.facts.creds?.secret)) ctx.color = 'cleartext'
     if (!isRequest && ((code ?? 0) >= 500 || command === '-ERR' || command === 'NO')) ctx.color = 'error'
     ctx.info = `${isRequest ? 'Request' : 'Response'}: ${firstFacts.line}`
   } else ctx.info = `${NAMES[proto]}`
@@ -249,7 +250,7 @@ function detectCreds(ctx: DissectCtx, proto: TextProto, cmd: string, arg: string
     const dec = m ? decodeBase64(m[1]) : null
     if (dec) {
       const parts = dec.split('\u0000')
-      ctx.facts.creds = { proto: 'SMTP', kind: 'login', user: parts[1], secret: parts[2] }
+      ctx.facts.creds = { proto: 'SMTP', kind: 'login', user: parts[1], secret: parts[2], wire: m![1] }
       ctx.color = 'cleartext'
     }
   }

@@ -10,10 +10,10 @@
   --panel-2: #15110b;
   --panel-3: #1f1910;
   --line: #3a2f1e;
-  --line-strong: #5e4b2d;
+  --line-strong: #716045;
   --fg: #f3d9aa;
   --muted: #b39668;
-  --faint: #76644a;
+  --faint: #917a57;
   --accent: #ffb000;
   --accent-ink: #140d00;
   --good: #a4ff5c;
@@ -48,10 +48,10 @@
   --panel-2: #0b170f;
   --panel-3: #112117;
   --line: #1c3524;
-  --line-strong: #2d5a3c;
+  --line-strong: #446c51;
   --fg: #c8f5d2;
   --muted: #7eb48b;
-  --faint: #4b7556;
+  --faint: #5c8967;
   --accent: #39ff88;
   --accent-ink: #01140a;
   --good: #d6ff4d;
@@ -86,11 +86,11 @@
   --panel-2: #efe8d6;
   --panel-3: #e4dac3;
   --line: #cbbd9d;
-  --line-strong: #a8966f;
+  --line-strong: #90805f;
   --fg: #221b10;
-  --muted: #6a5b41;
-  --faint: #978869;
-  --accent: #b34700;
+  --muted: #5f5039;
+  --faint: #73644b;
+  --accent: #a54100;
   --accent-ink: #fff8ea;
   --good: #2f7a1f;
   --bad: #b3261e;
@@ -101,17 +101,17 @@
   --shadow: 0 0 0 1px var(--line-strong), 0 12px 40px rgb(60 40 10 / 0.18);
 
   --p-tcp: #5b3fc4;
-  --p-syn: #6c6048;
-  --p-fin: #6c6048;
+  --p-syn: #6a5e47;
+  --p-fin: #6a5e47;
   --p-rst: #b3261e;
-  --p-udp: #1b64b0;
-  --p-dns: #0b7f6d;
-  --p-http: #3a7d10;
+  --p-udp: #1a61aa;
+  --p-dns: #096c5d;
+  --p-http: #326d0e;
   --p-tls: #8a2fb8;
-  --p-arp: #8a6d00;
-  --p-icmp: #b3307a;
-  --p-dhcp: #b3560a;
-  --p-clear: #c2410c;
+  --p-arp: #755d00;
+  --p-icmp: #a72d72;
+  --p-dhcp: #984909;
+  --p-clear: #aa390b;
   --p-err: #b3261e;
   --p-other: #6a5b41;
   --row-alpha: 15%;
@@ -162,6 +162,22 @@ body {
 *:focus-visible {
   outline: 1px solid var(--focus);
   outline-offset: 1px;
+}
+/* Scroll panes clip their own overflow, so draw the focus ring just inside the edge instead of outside it. */
+.focus-inset:focus-visible {
+  outline-width: 2px;
+  outline-offset: -2px;
+}
+/* Tree items are focusable wrappers around their nested children, so ring only the item's own row. */
+.tree-item:focus-visible {
+  outline: none;
+}
+.tree-item:focus-visible > .tree-row {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+.tree-item[aria-selected='true']:focus-visible > .tree-row {
+  outline-color: var(--accent-ink);
 }
 ::selection {
   background: var(--accent);

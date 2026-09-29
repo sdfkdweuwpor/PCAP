@@ -30,7 +30,6 @@ export function buildIndex(buf: Uint8Array, fileName: string, onProgress?: Index
   detectTelnetCreds(packets, conversations)
   labelTlsVersions(packets, conversations)
   const anomalies = detectAnomalies(packets, conversations)
-  const last = packets[packets.length - 1]
   return {
     fileName,
     format: container.format,
@@ -40,8 +39,19 @@ export function buildIndex(buf: Uint8Array, fileName: string, onProgress?: Index
     anomalies,
     warnings: container.warnings,
     totalBytes: buf.length,
-    duration: last.relTime,
+    duration: span(packets),
   }
+}
+
+/** Capture duration; captures are not always time-ordered, so use the extremes rather than first/last. */
+function span(packets: PacketSummary[]): number {
+  let lo = Infinity
+  let hi = -Infinity
+  for (const p of packets) {
+    if (p.relTime < lo) lo = p.relTime
+    if (p.relTime > hi) hi = p.relTime
+  }
+  return hi - lo
 }
 
 export function frameBytes(buf: Uint8Array, rec: { dataOffset: number; capLen: number }): Uint8Array {
@@ -55,10 +65,13 @@ function summarize(buf: Uint8Array, rec: RawRecord, no: number, t0: number, tcpI
   const t = d.facts.tcp
   const ip = d.facts.ip
   if (t && ip) {
-    // First segment seen in a direction defines the base for relative sequence numbers.
+    // The first segment seen in a direction defines the base for relative sequence numbers. A SYN with a new
+    // sequence number starts a new connection on a reused 4-tuple, so it resets the base (and the reverse one).
     const k = flowKey(ip.src, t.srcPort, ip.dst, t.dstPort)
-    if (!tcpIsn.has(k)) {
+    const known = tcpIsn.get(k)
+    if (known === undefined || (t.flags.syn && known !== t.seq)) {
       tcpIsn.set(k, t.seq)
+      if (t.flags.syn && !t.flags.ack && known !== undefined) tcpIsn.delete(flowKey(ip.dst, t.dstPort, ip.src, t.srcPort))
       d = dissectFrame(bytes, meta, { tcpIsn })
     }
   }
@@ -94,15 +107,16 @@ function labelTlsVersions(packets: PacketSummary[], convs: Conversation[]): void
   }
 }
 
-/** Rebuilds the ISN map from summaries so on-demand dissection shows the same relative numbers. */
-export function isnMapFromSummaries(packets: PacketSummary[]): Map<string, number> {
+/**
+ * The ISN bases a packet was numbered against, recovered from its summary. Passing this to on-demand dissection
+ * reproduces the index's relative seq/ack exactly, including after port reuse.
+ */
+export function isnForPacket(p: PacketSummary): Map<string, number> {
   const m = new Map<string, number>()
-  for (const p of packets) {
-    const t = p.facts.tcp
-    const ip = p.facts.ip
-    if (!t || !ip) continue
-    const k = flowKey(ip.src, t.srcPort, ip.dst, t.dstPort)
-    if (!m.has(k)) m.set(k, t.seq)
-  }
+  const t = p.facts.tcp
+  const ip = p.facts.ip
+  if (!t || !ip) return m
+  if (t.relSeq !== undefined) m.set(flowKey(ip.src, t.srcPort, ip.dst, t.dstPort), (t.seq - t.relSeq) >>> 0)
+  if (t.relAck !== undefined) m.set(flowKey(ip.dst, t.dstPort, ip.src, t.srcPort), (t.ack - t.relAck) >>> 0)
   return m
 }

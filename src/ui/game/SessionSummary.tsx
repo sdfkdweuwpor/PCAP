@@ -14,7 +14,7 @@ export function SessionSummary() {
   const partial = results.filter((r) => r.score > 0 && r.score < 1).length
   const missedCount = results.length - correct - partial
   const acc = results.length ? Math.round(((correct + partial * 0.5) / results.length) * 100) : 0
-  const mins = (Date.now() - sessionStart) / 60000
+  const [mins] = useState(() => (Date.now() - sessionStart) / 60000) // frozen when the report opens
   const missed = results.filter((r) => r.score < 1)
   const mode = playMode === 'story' ? 'story' : playMode === 'blitz' ? 'blitz' : playMode === 'mixed' ? 'mixed' : playMode ? MODE_INFO[playMode].name.toLowerCase() : ''
 

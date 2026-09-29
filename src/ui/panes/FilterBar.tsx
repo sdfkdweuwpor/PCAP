@@ -1,23 +1,34 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { compileFilter, FILTER_EXAMPLES, FilterError } from '../../core/filter/filter'
 import { useCapture } from '../../store/capture'
+import { hotkeyAllowed } from '../hotkeys'
+
+/** The live match count re-runs the filter over every packet, so wait for a typing pause and skip huge captures. */
+const PREVIEW_DELAY_MS = 150
+const PREVIEW_MAX_PACKETS = 200_000
 
 export function FilterBar() {
   const filterText = useCapture((s) => s.filterText)
   const filterError = useCapture((s) => s.filterError)
   const visible = useCapture((s) => s.visible)
-  const total = useCapture((s) => s.index?.packets.length ?? 0)
+  const packets = useCapture((s) => s.index?.packets)
+  const total = packets?.length ?? 0
   const [draft, setDraft] = useState(filterText)
+  // The applied filter changing (game, clear, examples) replaces whatever is being typed.
+  const [appliedSeen, setAppliedSeen] = useState(filterText)
+  if (filterText !== appliedSeen) {
+    setAppliedSeen(filterText)
+    setDraft(filterText)
+  }
+  const [settled, setSettled] = useState(filterText)
   const [showEx, setShowEx] = useState(false)
   const input = useRef<HTMLInputElement>(null)
-
-  useEffect(() => setDraft(filterText), [filterText])
 
   // "/" focuses the filter like many analyst tools.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === '/' && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement)) {
+      if (e.key === '/' && hotkeyAllowed(e)) {
         e.preventDefault()
         input.current?.focus()
       }
@@ -30,24 +41,43 @@ export function FilterBar() {
   const bad = !!filterError && draft === filterText
   const good = !filterError && !!filterText && draft === filterText
 
-  // Live preview of the match count while typing (the list only changes on Enter).
-  let preview: string | null = null
-  if (draft !== filterText && draft.trim()) {
+  // Live preview of the match count (the list only changes on Enter): debounced, off for very large captures.
+  const previewOn = total <= PREVIEW_MAX_PACKETS
+  useEffect(() => {
+    if (!previewOn) return
+    const t = setTimeout(() => setSettled(draft), PREVIEW_DELAY_MS)
+    return () => clearTimeout(t)
+  }, [draft, previewOn])
+  const preview = useMemo(() => {
+    if (!previewOn || !packets || settled !== draft || draft === filterText || !draft.trim()) return null
     try {
-      const idx = useCapture.getState().index
-      preview = idx ? `${idx.packets.filter(compileFilter(draft)).length} would match` : null
+      return `${packets.filter(compileFilter(draft)).length} would match`
     } catch (e) {
-      preview = e instanceof FilterError ? 'incomplete' : null
+      return e instanceof FilterError ? 'incomplete' : null
     }
-  }
+  }, [previewOn, packets, settled, draft, filterText])
 
   return (
-    <div className="relative">
+    <div
+      className="relative"
+      // Keep the examples open while focus is anywhere in the bar or popover, so keyboard users can Tab into them.
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setShowEx(false)
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && showEx) {
+          e.preventDefault()
+          e.stopPropagation()
+          setShowEx(false)
+        }
+      }}
+    >
       <form
         className="flex items-stretch"
         onSubmit={(e) => {
           e.preventDefault()
           apply(draft)
+          if (document.activeElement !== input.current) setShowEx(false)
         }}
       >
         <label
@@ -59,7 +89,6 @@ export function FilterBar() {
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onFocus={() => setShowEx(true)}
-            onBlur={() => setTimeout(() => setShowEx(false), 150)}
             placeholder="dns || tcp.flags.syn == 1"
             aria-label="Display filter"
             aria-invalid={bad}
@@ -77,6 +106,7 @@ export function FilterBar() {
               onClick={() => {
                 setDraft('')
                 apply('')
+                input.current?.focus() // this button unmounts; keep focus (and the examples) in the bar
               }}
               className="shrink-0 text-[11px] text-faint hover:text-fg"
             >
@@ -118,6 +148,7 @@ export function FilterBar() {
                   onClick={() => {
                     setDraft(ex)
                     apply(ex)
+                    input.current?.focus()
                   }}
                   className="text-muted hover:text-accent"
                 >

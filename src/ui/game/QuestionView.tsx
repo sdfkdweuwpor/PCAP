@@ -20,6 +20,7 @@ import { useCapture } from '../../store/capture'
 import { BLITZ_SECONDS, useGame } from '../../store/game'
 import { useProgress } from '../../store/progress'
 import { useTicker } from '../hooks'
+import { consoleHotkeyAllowed } from '../hotkeys'
 import { Btn, Kbd, Meter } from '../term'
 import { TIER_TONE } from '../tones'
 import { ExplanationCard } from './ExplanationCard'
@@ -32,16 +33,17 @@ export function QuestionView() {
   const { deck, idx, phase, hintUsed, questionStart, blitzEndsAt, playMode, feedback } = useGame()
   const q = deck[idx]
   const showTimer = useProgress((s) => s.settings.showTimer)
-  const now = useTicker(phase === 'question', 250)
+  // Blitz keeps its clock running through feedback.
+  const now = useTicker(phase === 'question' || (!!blitzEndsAt && phase === 'feedback'), 250)
 
   useEffect(() => {
-    if (blitzEndsAt && now >= blitzEndsAt && phase === 'question') useGame.getState().finish()
+    if (blitzEndsAt && now >= blitzEndsAt && (phase === 'question' || phase === 'feedback')) useGame.getState().finish()
   }, [now, blitzEndsAt, phase])
 
   // Keyboard: 1–4 answer choices, n = next, ? = hint. Text inputs keep their own keys.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return
+      if (!consoleHotkeyAllowed(e)) return
       const g = useGame.getState()
       const cur = g.deck[g.idx]
       if (g.phase === 'feedback' && (e.key === 'n' || e.key === 'N')) {
@@ -55,7 +57,8 @@ export function QuestionView() {
   }, [])
 
   if (!q) return null
-  const elapsed = Math.max(0, Math.floor(((phase === 'question' ? now : Date.now()) - questionStart) / 1000))
+  // The ticker stops on answer, so the clock freezes there; a new question reads 0 until the first tick.
+  const elapsed = Math.max(0, Math.floor((now - questionStart) / 1000))
   const blitzLeft = blitzEndsAt ? Math.max(0, (blitzEndsAt - now) / 1000) : null
   const info = MODE_INFO[q.mode]
 
@@ -125,11 +128,12 @@ export function QuestionView() {
           )}
           {phase === 'feedback' && feedback && <ExplanationCard q={q} feedback={feedback} />}
         </motion.div>
-        <XpFloat />
       </div>
 
       {phase === 'feedback' && (
-        <div className="shrink-0 border-t border-line p-2">
+        <div className="relative shrink-0 border-t border-line p-2">
+          {/* Rises out of the empty right end of the button, clear of the prompt and explanation text. */}
+          <XpFloat />
           <Btn tone="primary" block autoFocus hotkey="n" onClick={() => useGame.getState().next()}>
             {idx + 1 >= deck.length ? 'session report' : 'next case'}
           </Btn>

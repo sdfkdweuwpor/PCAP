@@ -8,6 +8,7 @@ import { SAMPLES } from '../samples/samples'
 import { ACCEPTED, useCapture } from '../store/capture'
 import { useProgress } from '../store/progress'
 import { ThemeSwitch } from './Header'
+import { hotkeyAllowed } from './hotkeys'
 import { Btn, Frame, Kbd, Meter } from './term'
 
 const fmtSize = (n: number) => (n < 1024 ? `${n}B` : n < 1048576 ? `${(n / 1024).toFixed(1)}K` : `${(n / 1048576).toFixed(1)}M`)
@@ -34,7 +35,7 @@ export function UploadScreen() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (loading || e.metaKey || e.ctrlKey || e.altKey || e.target instanceof HTMLInputElement) return
+      if (loading || !hotkeyAllowed(e)) return
       const n = Number(e.key)
       if (n >= 1 && n <= SAMPLES.length) void loadSample(SAMPLES[n - 1].id)
       if (e.key === 'o') input.current?.click()
@@ -68,16 +69,22 @@ export function UploadScreen() {
               role="button"
               tabIndex={0}
               aria-label="Load a capture: drop a file here, or press Enter to browse"
-              onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && input.current?.click()}
+              aria-disabled={loading || undefined}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter' && e.key !== ' ') return
+                e.preventDefault() // Space would otherwise scroll the page
+                if (!loading) input.current?.click()
+              }}
               onClick={() => !loading && input.current?.click()}
               onDragOver={(e) => {
                 e.preventDefault()
-                setDrag(true)
+                if (!loading) setDrag(true)
               }}
               onDragLeave={() => setDrag(false)}
               onDrop={(e) => {
-                e.preventDefault()
+                e.preventDefault() // always, so the browser doesn't navigate to the dropped file
                 setDrag(false)
+                if (loading) return
                 const f = e.dataTransfer.files?.[0]
                 if (f) void loadFile(f)
               }}
@@ -185,9 +192,14 @@ export function UploadScreen() {
                 {listing.map((s, i) => (
                   <tr
                     key={s.id}
+                    role="button"
                     tabIndex={0}
                     onClick={() => !loading && void loadSample(s.id)}
-                    onKeyDown={(e) => e.key === 'Enter' && !loading && void loadSample(s.id)}
+                    onKeyDown={(e) => {
+                      if (e.key !== 'Enter' && e.key !== ' ') return
+                      e.preventDefault()
+                      if (!loading) void loadSample(s.id)
+                    }}
                     className="group cursor-pointer border-b border-line/60 last:border-0 hover:bg-accent hover:text-accent-ink focus:bg-accent focus:text-accent-ink focus:outline-none"
                   >
                     <td className="px-3 py-1.5">

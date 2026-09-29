@@ -22,7 +22,7 @@ export function Frame({
 }) {
   return (
     <section id={id} aria-label={typeof title === 'string' ? title : undefined} className={`flex min-h-0 flex-col border border-line bg-panel ${className}`}>
-      <header className="flex h-6 shrink-0 items-center gap-2 border-b border-line bg-panel2 px-2 text-[11px] uppercase tracking-[0.14em] text-muted">
+      <header className="flex h-6 shrink-0 items-center gap-2 border-b border-line bg-panel2 px-2 text-[11px] uppercase tracking-[0.12em] text-muted">
         <span className="text-faint" aria-hidden>
           ┌
         </span>

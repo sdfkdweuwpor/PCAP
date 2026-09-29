@@ -45,7 +45,7 @@ Requires Node 20+. Works in current Chrome, Firefox, Safari and Edge, on desktop
 
 **Cleartext credentials** (FTP USER/PASS, HTTP Basic, IMAP LOGIN, SMTP AUTH PLAIN, and Telnet logins reassembled from keystroke packets) are flagged as teaching moments. Secrets are masked in the list, tree, hex pane, stream view and every question until you press **Reveal**.
 
-**Display filters:** a Wireshark subset — `ip.addr/src/dst` (including CIDR), `tcp.port`, `udp.port`, `tcp.flags.syn/ack/fin/reset/push`, protocol names (`dns`, `http`, `tls`, `arp`, …), `dns.qry.name`, `http.response.code`, `frame.len` and more; operators `== != > < >= <= contains` (and `eq`/`ne`/…); combinators `&& || ! and or not ( )`. Unsupported syntax gets a friendly error with suggestions.
+**Display filters:** a Wireshark subset — `ip.addr/src/dst` (including CIDR), `ipv6.addr` (including IPv6 prefixes), `tcp.port`, `udp.port`, `tcp.flags` (numeric, e.g. `== 0x12`) and `tcp.flags.syn/ack/fin/reset/push`, `tcp.stream`/`udp.stream` (numbered per protocol, as in Wireshark), protocol names (`dns`, `http`, `tls`, `arp`, …), `dns.qry.name`, `dns.qry.type` (`== 28` or `== AAAA`), `http.response.code`, `frame.len` and more; operators `== != > < >= <= contains` (and `eq`/`ne`/…); combinators `&& || ! and or not ( )`. As in Wireshark, text comparisons are case-sensitive (addresses are not), and `a != b` never matches packets that lack the field. Unsupported syntax gets a friendly error with suggestions.
 
 ## Game modes
 
@@ -58,8 +58,8 @@ Requires Node 20+. Works in current Chrome, Firefox, Safari and Edge, on desktop
 | E | Put It In Order | Drag shuffled cards (DNS → SYN → SYN-ACK → … → FIN) into wire order |
 | F | Spot the Anomaly | Identify the attack, find evidence, choose the next step. Only asked when a heuristic actually detected it. |
 | G | Story Mode | A narrated, packet-by-packet walkthrough with quick checks |
-| H | Type the Answer | Read a value from the capture (TTL, port, domain, resolved IP, status code, SNI, cipher suite, DHCP-offered IP, FTP username, impostor MAC, scan counts) and type it. Numbers, IPs and MACs are normalised; small letter typos are forgiven, but a digit typo in a short answer is not. |
-| I | Filter Forge | Write a display filter. It is compiled and dry-run on every keystroke (matches / right / extra / missing), graded on exactly which frames it matches: exact = full credit, Jaccard ≥ 0.6 = half. A reference filter is shown afterwards. |
+| H | Type the Answer | Read a value from the capture (TTL, port, domain, resolved IP, status code, SNI, cipher suite, DHCP-offered IP, FTP username, impostor MAC, scan counts) and type it. Numbers, IPs and MACs are normalised, and a pasted URL counts for a host name. Small letter typos are forgiven, but a digit typo never is; cipher-suite names are checked token by token. |
+| I | Filter Forge | Write a display filter. It is compiled and dry-run on every keystroke (matches / right / extra / missing), graded on exactly which frames it matches: exact = full credit; half credit when at least 80% of the matches are right and at least 80% of the target is found. A reference filter is shown afterwards. |
 | J | Keystroke Drill | 60-second typing drill on terms, filter fields and values from the loaded capture. Per-character feedback, live WPM/accuracy, best WPM saved, XP awarded (capped at 120). |
 | ⏱ | Blitz | 60 seconds, as many as you can |
 
@@ -67,7 +67,7 @@ Ranks run **Recruit → Analyst (250 XP) → Hunter (700 XP) → Threat Hunter (
 
 ## Keyboard
 
-**Start screen:** `1–8` loads a sample, `o` opens the file picker. **Console:** letter keys start modes (`m` mixed, `a–j` modes A–J, `z` blitz); `1–4` answer multiple-choice; `↵` submits; `n` goes to the next case; `?` shows a hint (−50% XP); `/` focuses the display filter; `↑/↓` move the packet list; `←/→` step through Story Mode; `esc` restarts a drill.
+**Start screen:** `1–8` loads a sample, `o` opens the file picker. **Console:** letter keys start modes (`m` mixed, `a–j` modes A–J, `z` blitz); `1–4` answer multiple-choice; `↵` submits; `n` goes to the next case; `?` shows a hint (−50% XP); `/` focuses the display filter; `↑/↓` move the packet list; `←/→` step through Story Mode; `esc` restarts a drill. Single-key shortcuts can be switched off in settings (`cfg`).
 
 ## Samples
 
@@ -102,7 +102,7 @@ main    store/capture  keeps the file bytes; re-dissects any packet on demand
 
 1. **Parser → index.** The worker does one pass: container records, full dissection of each frame to extract `PacketFacts` (TCP flags, DNS names, TLS SNI, DHCP type, credentials, …), then conversations and anomaly heuristics. Field trees are thrown away and rebuilt lazily on the main thread for whichever packet you look at, so large captures stay light. A 20 MB / 23k-packet capture indexes in about 1 s, and the UI never blocks for long.
 2. **Index → generators.** `game/knowledge.ts` classifies each packet into a teaching *kind* (`tcp-synack`, `dns-nxdomain`, `tls-ch`, …). Each kind carries a literal statement, a meaning template, an analyst "why it matters" line, RFC detail and a list of *confusables*. Generators query the index and fill templates with real values from the capture.
-3. **Generators → game.** Every question passes `validateQuestion`: frames exist, and multiple-choice options are within 25% of each other in length, with the correct one no more than 10% longer than the longest distractor. Short options are padded with neutral phrases; if that isn't enough the question is dropped. Decks are sampled with weights that favour weak concepts and are ordered Recruit → Hunter.
+3. **Generators → game.** Every question passes `validateQuestion`: frames exist, and multiple-choice options are within 25% of each other in length, with the correct one no more than 3 characters longer than the longest distractor. Short options are padded with neutral phrases, and never only the wrong ones; if that isn't enough the question is dropped. Decks are sampled with weights that favour weak concepts and are ordered Recruit → Hunter.
 
 ### Adding a protocol dissector
 

@@ -1,7 +1,8 @@
 // Packet bytes: hex + ASCII dump. Hovering bytes highlights the owning field; hovering a field
-// highlights its bytes; "Show me" sweeps across the target bytes.
+// highlights its bytes; "Show me" sweeps across the target bytes. The pane is also keyboard operable:
+// focus it, move a byte cursor with the arrow keys / Home / End, and press Enter or Space to select the field.
 
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { printable } from '../../core/bytes'
 import type { Field } from '../../core/types'
 import { fieldAtOffset, findByKey } from '../../game/engine'
@@ -19,6 +20,8 @@ function secretRanges(layers: Field[], telnetPass: boolean): [number, number][] 
   return out
 }
 
+const ROW_BYTES = 16
+
 export function HexPane() {
   const selected = useCapture((s) => s.selected)
   const hover = useCapture((s) => s.hover)
@@ -28,6 +31,11 @@ export function HexPane() {
   const fieldMode = useGame((s) => s.phase === 'question' && s.deck[s.idx]?.kind === 'field')
   const bytes = useMemo(() => (selected ? getFrameBytes(selected) : new Uint8Array()), [selected])
   const d = selected ? getDissection(selected) : null
+  const [cur, setCur] = useState<{ frame: number | null; i: number }>({ frame: selected, i: 0 })
+  const [focused, setFocused] = useState(false)
+  const box = useRef<HTMLDivElement>(null)
+  // The cursor belongs to one frame; selecting another frame starts it back at byte 0.
+  const cursor = cur.frame === selected ? Math.min(cur.i, Math.max(0, bytes.length - 1)) : 0
   const telnetPass = selected ? useCapture.getState().index?.packets[selected - 1].facts.creds?.kind === 'pass' : false
   const secrets = useMemo(() => (d && !reveal ? secretRanges(d.layers, telnetPass) : []), [d, reveal, telnetPass])
   const sweepRanges = useMemo(() => {
@@ -37,6 +45,19 @@ export function HexPane() {
       .filter((f): f is Field => !!f && f.length > 0)
       .map((f) => [f.offset, f.offset + f.length] as [number, number])
   }, [d, sweep, selected])
+
+  // Keep the cursor byte inside the scroll viewport while moving with the keyboard.
+  useEffect(() => {
+    const el = box.current
+    const cell = focused ? el?.querySelector<HTMLElement>(`[data-kind="hex"][data-off="${cursor}"]`) : null
+    if (!el || !cell) return
+    const a = el.getBoundingClientRect()
+    const b = cell.getBoundingClientRect()
+    if (b.top < a.top) el.scrollTop -= a.top - b.top
+    else if (b.bottom > a.bottom) el.scrollTop += b.bottom - a.bottom
+    if (b.left < a.left) el.scrollLeft -= a.left - b.left
+    else if (b.right > a.right) el.scrollLeft += b.right - a.right
+  }, [cursor, focused, selected])
 
   if (!selected || !d) return <p className="p-3 text-[12px] text-faint">-- no frame selected --</p>
 
@@ -63,7 +84,36 @@ export function HexPane() {
     if (fieldMode) useGame.getState().setFieldPick({ offset: i, key: f.key, via: 'hex', name: f.name })
   }
 
-  const rows = Math.ceil(bytes.length / 16)
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.altKey || e.metaKey || !bytes.length) return
+    const last = bytes.length - 1
+    const rowStart = cursor - (cursor % ROW_BYTES)
+    let next: number
+    if (e.key === 'ArrowLeft') next = cursor - 1
+    else if (e.key === 'ArrowRight') next = cursor + 1
+    else if (e.key === 'ArrowUp') next = cursor >= ROW_BYTES ? cursor - ROW_BYTES : cursor
+    else if (e.key === 'ArrowDown') next = cursor + ROW_BYTES <= last ? cursor + ROW_BYTES : rowStart + ROW_BYTES <= last ? last : cursor // last row is partial: land on its final byte
+    else if (e.key === 'Home') next = e.ctrlKey ? 0 : rowStart
+    else if (e.key === 'End') next = e.ctrlKey ? last : rowStart + ROW_BYTES - 1
+    else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      e.stopPropagation()
+      onClick(cursor) // exactly what clicking the byte does
+      return
+    } else return
+    e.preventDefault()
+    e.stopPropagation()
+    setCur({ frame: selected, i: Math.max(0, Math.min(last, next)) })
+  }
+
+  // Spoken position for screen readers (secret bytes are never read out).
+  const curField = fieldAtOffset(d.layers, cursor)
+  const curSecret = inAny(cursor, secrets) || (!!curField && !reveal && !!(curField.secret || (telnetPass && curField.key === 'telnet.data')))
+  const announce = focused && bytes.length
+    ? `byte ${cursor}, offset 0x${cursor.toString(16)}, ${curSecret ? 'masked' : `value 0x${bytes[cursor].toString(16).padStart(2, '0')}${curField ? `, ${curField.name}` : ''}`}`
+    : ''
+
+  const rows = Math.ceil(bytes.length / ROW_BYTES)
   const cell = (i: number, kind: 'hex' | 'ascii') => {
     const b = bytes[i]
     const masked = inAny(i, secrets)
@@ -71,15 +121,20 @@ export function HexPane() {
     const sel = inR(i, selField)
     const sw = inAny(i, sweepRanges)
     const txt = masked ? (kind === 'hex' ? '••' : '•') : kind === 'hex' ? b.toString(16).padStart(2, '0') : printable(b)
+    const isCursor = focused && i === cursor
     return (
       <span
         key={`${kind}${i}-${sw ? sweep?.token : 0}`}
         data-off={i}
+        data-kind={kind}
         onMouseEnter={() => onHover(i)}
-        onClick={() => onClick(i)}
+        onClick={() => {
+          setCur({ frame: selected, i })
+          onClick(i)
+        }}
         className={`relative cursor-pointer ${kind === 'hex' ? 'px-[3px]' : ''} ${
           sel ? 'bg-accent text-accent-ink' : hl ? 'bg-accent/30' : ''
-        } ${masked ? 'text-[var(--p-clear)]' : ''} ${sw ? 'byte-sweep' : ''}`}
+        } ${masked ? 'text-[var(--p-clear)]' : ''} ${sw ? 'byte-sweep' : ''} ${isCursor ? 'z-10 outline outline-1 outline-fg' : ''}`}
         style={sw ? ({ ['--i' as string]: sweepIndex(i) } as React.CSSProperties) : undefined}
       >
         {txt}
@@ -89,16 +144,25 @@ export function HexPane() {
 
   return (
     <div
-      className="scroll-thin h-full overflow-auto px-2 py-1 text-[12px] leading-[1.5]"
+      ref={box}
+      role="group"
+      tabIndex={0}
+      className="focus-inset scroll-thin relative h-full overflow-auto px-2 py-1 text-[12px] leading-[1.5]"
       onMouseLeave={() => onHover(null)}
-      aria-label={`Packet ${selected} bytes, ${bytes.length} bytes. Click a byte to select its field.`}
+      onKeyDown={onKeyDown}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      aria-label={`Packet ${selected} bytes, ${bytes.length} bytes. Click a byte or use the arrow keys, then Enter, to select its field.`}
     >
+      <span className="sr-only" aria-live="polite">
+        {announce}
+      </span>
       {Array.from({ length: rows }, (_, r) => (
         <div key={r} className="flex gap-3 whitespace-nowrap">
-          <span className="select-none text-faint">{(r * 16).toString(16).padStart(4, '0')}</span>
+          <span className="select-none text-faint">{(r * ROW_BYTES).toString(16).padStart(4, '0')}</span>
           <span className="flex">
-            {Array.from({ length: 16 }, (_, c) => {
-              const i = r * 16 + c
+            {Array.from({ length: ROW_BYTES }, (_, c) => {
+              const i = r * ROW_BYTES + c
               if (i >= bytes.length) return <span key={c} className="px-[3px] text-transparent">00</span>
               return (
                 <span key={c} className={c === 8 ? 'ml-2' : ''}>
@@ -108,7 +172,7 @@ export function HexPane() {
             })}
           </span>
           <span className="text-muted">
-            {Array.from({ length: Math.min(16, bytes.length - r * 16) }, (_, c) => cell(r * 16 + c, 'ascii'))}
+            {Array.from({ length: Math.min(ROW_BYTES, bytes.length - r * ROW_BYTES) }, (_, c) => cell(r * ROW_BYTES + c, 'ascii'))}
           </span>
         </div>
       ))}

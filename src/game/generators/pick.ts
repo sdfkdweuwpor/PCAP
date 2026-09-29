@@ -1,6 +1,7 @@
 // Mode A — "Which Line Is It?": describe a packet in plain English, learner clicks the row(s).
 
 import { short } from '../knowledge'
+import type { Conversation } from '../../core/types'
 import type { Concept, PickQuestion, Tier } from '../types'
 import { GenCtx, notNull, spread, type Generator } from './context'
 
@@ -29,6 +30,14 @@ function pick(
     explanation: ctx.explain(explainFrom),
     highlight: answer.map((packet) => ({ packet })),
   }
+}
+
+/** "10.0.0.5" — or "10.0.0.5 (port 51234)" when other connections share the same client, server and service port. */
+function clientOf(ctx: GenCtx, c: Conversation): string {
+  const twins = ctx.index.conversations.filter(
+    (o) => o.proto === c.proto && o.a.addr === c.a.addr && o.b.addr === c.b.addr && o.b.port === c.b.port,
+  )
+  return twins.length > 1 ? `${c.a.addr} (port ${c.a.port})` : c.a.addr
 }
 
 export const pickGenerators: Generator[] = [
@@ -71,7 +80,8 @@ export const pickGenerators: Generator[] = [
             'dns',
             `Find the DNS server's answer that tells the client where ${p.facts.dns!.qname} lives.`,
             'Responses say "Standard query response" and carry A/AAAA records.',
-            [p.no],
+            rs.filter((r) => r.facts.dns!.qname === p.facts.dns!.qname).map((r) => r.no),
+            p.no,
           ),
         )
         .filter(notNull)
@@ -110,7 +120,7 @@ export const pickGenerators: Generator[] = [
             `pick.tcp-syn:${c.id}`,
             'Recruit',
             'tcp-handshake',
-            `Click the packet where ${c.a.addr} first asks to open a TCP connection to ${c.b.addr} on port ${c.b.port}.`,
+            `Click the packet where ${clientOf(ctx, c)} first asks to open a TCP connection to ${c.b.addr} on port ${c.b.port}.`,
             'The very first packet of a TCP connection has only the SYN flag set.',
             [c.handshake!.syn!],
           ),
@@ -131,7 +141,7 @@ export const pickGenerators: Generator[] = [
             `pick.tcp-synack:${c.id}`,
             'Analyst',
             'tcp-handshake',
-            `Find the packet where ${c.b.addr} agrees to open the connection on port ${c.b.port}.`,
+            `Find the packet where ${c.b.addr} agrees to open ${clientOf(ctx, c)}'s connection on port ${c.b.port}.`,
             'The server answers a SYN with both SYN and ACK set.',
             [c.handshake!.synAck!],
           ),
@@ -153,7 +163,7 @@ export const pickGenerators: Generator[] = [
           `pick.handshake:${c.id}`,
           'Analyst',
           'tcp-handshake',
-          `Select all three packets of the TCP handshake between ${c.a.addr} and ${c.b.addr}:${c.b.port}.`,
+          `Select all three packets of the TCP handshake between ${clientOf(ctx, c)} and ${c.b.addr}:${c.b.port}.`,
           'SYN → SYN, ACK → ACK. Click each one, then submit.',
           [hs.syn!, hs.synAck!, hs.ack!],
           hs.synAck!,
@@ -170,14 +180,20 @@ export const pickGenerators: Generator[] = [
       return spread(ctx.of('http-request'), 2)
         .map((p) => {
           const h = p.facts.http!
+          const host = h.host ?? p.facts.ip?.dst
+          const same = ctx
+            .of('http-request')
+            .filter((r) => r.facts.http!.uri === h.uri && (r.facts.http!.host ?? r.facts.ip?.dst) === host)
+            .map((r) => r.no)
           return pick(
             ctx,
             `pick.http-request:${p.no}`,
             'Recruit',
             'http',
-            `Click the packet where the client requests ${short(h.uri ?? '/', 30)} from ${h.host ?? p.facts.ip?.dst}.`,
+            `Click the packet where the client requests ${short(h.uri ?? '/', 30)} from ${host}.`,
             'HTTP requests start with a method such as GET or POST.',
-            [p.no],
+            same,
+            p.no,
           )
         })
         .filter(notNull)
@@ -202,7 +218,8 @@ export const pickGenerators: Generator[] = [
             ? "Find the response where the server says the requested file doesn't exist."
             : 'Find the response where the server refuses or fails the client’s request.',
           'Status codes in the 400s are client errors. Try the filter http.response.code >= 400.',
-          errs.filter((e) => e.facts.http!.status === p.facts.http!.status).map((e) => e.no),
+          (is404 ? errs.filter((e) => e.facts.http!.status === 404) : errs).map((e) => e.no),
+          p.no,
         ),
       ].filter(notNull)
     },
@@ -222,7 +239,7 @@ export const pickGenerators: Generator[] = [
           'tls',
           'Click the packet where the client starts the TLS handshake and names the website it wants.',
           'It comes right after the TCP handshake and says "Client Hello".',
-          [p.no],
+          ctx.of('tls-ch').map((x) => x.no),
         ),
       ].filter(notNull)
     },
@@ -242,7 +259,7 @@ export const pickGenerators: Generator[] = [
           'tls',
           'Find the packet where the server picks the cipher suite that will protect the session.',
           'The server answers the Client Hello with its own Hello.',
-          [p.no],
+          ctx.of('tls-sh').map((x) => x.no),
         ),
       ].filter(notNull)
     },
@@ -257,13 +274,15 @@ export const pickGenerators: Generator[] = [
       const fin = c.packets.find((n) => ctx.pkt(n).facts.tcp?.flags.fin)
       if (!fin) return []
       const who = ctx.pkt(fin).facts.ip!.src
+      const twins = ctx.index.conversations.filter((o) => o.proto === 'TCP' && o.a.addr === c.a.addr && o.b.addr === c.b.addr && o.b.port === c.b.port)
+      const which = twins.length > 1 ? `port-${c.a.port} → port-${c.b.port}` : `port-${c.b.port}`
       return [
         pick(
           ctx,
           `pick.fin:${c.id}`,
           'Analyst',
           'tcp-teardown',
-          `Find the packet where ${who} first says it is finished sending on the port-${c.b.port} connection.`,
+          `Find the packet where ${who} first says it is finished sending on the ${which} connection.`,
           'A graceful close starts with the FIN flag.',
           [fin],
         ),
@@ -308,7 +327,7 @@ export const pickGenerators: Generator[] = [
               'arp',
               `Find the packet that answers the question "Who has ${t}?"`,
               'The answer is an ARP reply saying "<IP> is at <MAC>".',
-              [reply.no],
+              ctx.of('arp-reply').filter((r) => r.no > req.no && r.facts.arp!.senderIp === t).map((r) => r.no),
             ),
           ].filter(notNull)
       }
@@ -371,7 +390,7 @@ export const pickGenerators: Generator[] = [
           'cleartext',
           "Find the server's reply confirming that a login attempt succeeded.",
           'FTP replies starting with 2 mean success.',
-          [p.no],
+          ctx.of('ftp-230').map((x) => x.no),
         ),
       ].filter(notNull)
     },
@@ -475,17 +494,25 @@ export const pickGenerators: Generator[] = [
       if (!a) return []
       const dom = String(a.evidence.domain)
       const qs = ctx.of('dns-query').filter((p) => p.facts.dns!.qname.endsWith(dom))
-      return [
-        pick(
-          ctx,
-          `pick.dns-tunnel:${qs[0]?.no}`,
-          'Hunter',
-          'exfil',
-          'Click a DNS query whose name looks like encoded data rather than a real website.',
-          'Real hostnames are short and readable; tunnels use long random-looking labels.',
-          qs.map((p) => p.no),
-        ),
-      ].filter(notNull)
+      const q = pick(
+        ctx,
+        `pick.dns-tunnel:${qs[0]?.no}`,
+        'Hunter',
+        'exfil',
+        'Click a DNS query whose name looks like encoded data rather than a real website.',
+        'Real hostnames are short and readable; tunnels use long random-looking labels.',
+        qs.map((p) => p.no),
+      )
+      if (!q) return []
+      const name = qs[0].facts.dns!.qname
+      const label = name.slice(0, name.length - dom.length).split('.').find(Boolean) ?? ''
+      q.explanation = {
+        says: `Standard query for ${short(name, 48)}`,
+        means: `The ${label.length}-character label in front of ${dom} is data, encoded to fit in a hostname. The domain's own name server receives every query and decodes it.`,
+        matters: 'DNS is allowed out of almost every network, which makes it a quiet channel for exfiltration and command-and-control.',
+        deeper: 'RFC 1035 allows labels up to 63 bytes and names up to 253, so each query can carry around 150–180 bytes once base32/base64 encoded.',
+      }
+      return [q]
     },
   },
 ]

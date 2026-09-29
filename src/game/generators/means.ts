@@ -109,9 +109,9 @@ export const meansGenerators: Generator[] = [
       hint: 'Look at the bytes pane. Can you read them?',
       correct: 'Anyone on the network path can read the password as plain text.',
       distractors: [
-        'The server will lock the account after too many attempts.',
-        'The password is too short to satisfy the password policy.',
-        'The client connected to the file server on the wrong port.',
+        'The server will lock the account after too many failed attempts.',
+        'The password is too short to satisfy the company password policy.',
+        'The client connected to the file server on the wrong TCP port.',
       ],
       explanation: {
         ...ctx.explain(p.no),
@@ -225,8 +225,8 @@ export const meansGenerators: Generator[] = [
       hint: 'What did the scanner already learn from the SYN-ACK?',
       correct: 'It already knows the port is open and wants no connection.',
       distractors: [
-        'The SYN-ACK arrived damaged, so it must start over.',
-        'Resetting is the normal way to begin sending data.',
+        'The SYN-ACK arrived damaged, so the scanner must start over.',
+        'Resetting is the normal way for TCP to begin sending data.',
         'The target asked the scanner to slow down its probes.',
       ],
       explanation: {
@@ -298,9 +298,9 @@ export const meansGenerators: Generator[] = [
           hint: 'Compare the Ethernet source and destination MACs of the two copies.',
           correct: 'Another host on the LAN is forwarding (routing) the traffic.',
           distractors: [
-            'The client resent the ping because the first was lost.',
-            'The switch duplicates every frame it sees by design.',
-            'The ping reached the Internet and then bounced back.',
+            'The client resent the ping because the first copy was lost.',
+            'The switch duplicates every frame it forwards, by design.',
+            'The ping reached the Internet and was bounced back to us.',
           ],
           explanation: {
             says: `#${a.no}: TTL ${a.facts.ip!.ttl}, Ethernet ${a.facts.eth?.src} → ${a.facts.eth?.dst}; #${b.no}: TTL ${b.facts.ip!.ttl}, Ethernet ${b.facts.eth?.src} → ${b.facts.eth?.dst}.`,
@@ -326,9 +326,9 @@ export const meansGenerators: Generator[] = [
       hint: 'Would a human ever type that hostname?',
       correct: 'Data is being smuggled out inside long random subdomains.',
       distractors: [
-        'The client is using a slow DNS server very far away.',
-        'The domain is new, so its records are not cached yet.',
-        'The queries ask for TXT, which is always malicious.',
+        'The client is using a slow DNS server that is very far away.',
+        'The domain is brand new, so its records are not cached yet.',
+        'The queries ask for TXT records, which are always malicious.',
       ],
       explanation: {
         says: a.detail,
@@ -341,7 +341,7 @@ export const meansGenerators: Generator[] = [
   }),
   gen('means.dhcp-broadcast', 'a DHCP Discover', (ctx) => {
     const p = ctx.of('dhcp-discover')[0]
-    if (!p || p.facts.ip?.src !== '0.0.0.0') return null
+    if (!p || p.facts.ip?.src !== '0.0.0.0' || p.facts.ip.dst !== '255.255.255.255') return null
     return {
       id: `means.dhcp-broadcast:${p.no}`,
       tier: 'Recruit',
@@ -417,7 +417,15 @@ export const meansGenerators: Generator[] = [
       ],
       explanation: {
         ...ctx.explain(p.no),
-        means: `${mss} = 1500-byte Ethernet MTU − 20 (IP) − 20 (TCP). The peer won't send segments with more than ${mss} bytes of payload.`,
+        means:
+          (mss === 1460
+            ? `${mss} = 1500-byte Ethernet MTU − 20 (IP) − 20 (TCP). `
+            : mss === 1440
+              ? `${mss} = 1500-byte MTU − 40 (IPv6) − 20 (TCP). `
+              : mss! > 1460
+                ? `${mss} is above the usual 1460, so the sender's link allows jumbo frames. `
+                : `${mss} is below the usual 1460, which points to a smaller path MTU (a tunnel, VPN or PPPoE link). `) +
+          `The peer won't send segments with more than ${mss} bytes of payload.`,
         deeper: 'RFC 9293 §3.7.1: MSS is only sent in SYN segments and counts payload bytes, excluding TCP/IP headers.',
       },
       packets: [p.no],

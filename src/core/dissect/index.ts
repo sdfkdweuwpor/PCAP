@@ -166,6 +166,8 @@ function dissectTcpApp(ctx: DissectCtx, p: Payload): void {
   const b = ctx.b
   const { offset: o, length: len } = p
   const toServer = (port: number) => p.dstPort === port
+  // TLS is often run on the HTTP-alt ports, so sniff for a TLS record before trusting the port number.
+  if (!looksLikeHttp(b, o, len) && looksLikeTls(b, o, len) && !has(p, 80)) return dissectTls(ctx, o, len)
   if (has(p, 80, 8080, 8000, 8008) || looksLikeHttp(b, o, len)) return dissectHttp(ctx, o, len)
   if (has(p, 443, 8443, 993, 995, 465, 636) || looksLikeTls(b, o, len)) return dissectTls(ctx, o, len)
   if (has(p, 21)) return dissectTextProto(ctx, 'FTP', o, len, toServer(21))

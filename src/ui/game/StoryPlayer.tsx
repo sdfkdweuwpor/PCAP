@@ -4,6 +4,7 @@
 import { useEffect } from 'react'
 import { useCapture } from '../../store/capture'
 import { useGame } from '../../store/game'
+import { consoleHotkeyAllowed } from '../hotkeys'
 import { FlowView } from '../panes/FlowView'
 import { Btn, Kbd } from '../term'
 import { ChoiceBody } from './QuestionView'
@@ -19,7 +20,7 @@ export function StoryPlayer() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return
+      if (!consoleHotkeyAllowed(e)) return
       if (e.key === 'ArrowRight' && !needsCheck) {
         if (last) finish()
         else storyGo(idx + 1)

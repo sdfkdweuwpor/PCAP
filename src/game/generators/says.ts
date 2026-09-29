@@ -18,6 +18,7 @@ const TEACHABLE: Kind[] = [
   'http-ok',
   'http-notfound',
   'http-unauth',
+  'http-error',
   'tls-ch',
   'tls-sh',
   'tls-appdata',

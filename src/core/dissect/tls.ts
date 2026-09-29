@@ -1,6 +1,6 @@
 // TLS record layer + handshake parsing (ClientHello SNI / cipher suites, ServerHello chosen suite).
 
-import { hex, u16, u8 } from '../bytes'
+import { hex, TruncatedError, u16, u8 } from '../bytes'
 import type { Field } from '../types'
 import { add, layer, type DissectCtx } from './tree'
 
@@ -175,106 +175,124 @@ function dissectHandshakes(
     const ht = b[p]
     const hlen = (b[p + 1] << 16) | (b[p + 2] << 8) | b[p + 3]
     const name = HANDSHAKE_TYPES[ht]
+    // A large Hello or Certificate often continues into the next TCP segment (or record). Those are parsed as far
+    // as the bytes go; any other message that overruns its record is really encrypted data that happens to look
+    // like a header.
+    const overruns = p + 4 + hlen > recEnd
+    const splittable = (ht === 1 || ht === 2) ? b[p + 4] === 3 && hlen < 0x10000 : ht === 11 && hlen < 0x100000
     // After ChangeCipherSpec handshake messages are encrypted and look like garbage.
-    if (!name || p + 4 + hlen > recEnd + 0 || facts.contentTypes.includes('Change Cipher Spec')) {
+    if (!name || (overruns && !splittable) || facts.contentTypes.includes('Change Cipher Spec')) {
       add(rec, 'Handshake Protocol: Encrypted Handshake Message', 'tls.handshake.encrypted', undefined, p, recEnd - p)
       infos.push('Encrypted Handshake Message')
       return
     }
-    const hs = add(rec, `Handshake Protocol: ${name}`, 'tls.handshake', undefined, p, 4 + hlen)
+    const hs = add(rec, `Handshake Protocol: ${name}${overruns ? ' [continues in next segment]' : ''}`, 'tls.handshake', undefined, p, Math.min(4 + hlen, recEnd - p))
     add(hs, 'Handshake Type', 'tls.handshake.type', `${name} (${ht})`, p, 1)
     add(hs, 'Length', 'tls.handshake.length', hlen, p + 1, 3)
     facts.handshakeTypes.push(name)
     const hb = p + 4
-    const hEnd = hb + hlen
+    const hEnd = Math.min(hb + hlen, recEnd)
     if (ht === 1 || ht === 2) {
-      const ver = u16(b, hb)
-      add(hs, 'Version', 'tls.handshake.version', `${tlsVersionName(ver)} (${hex(ver)})`, hb, 2)
-      add(hs, 'Random', 'tls.handshake.random', 'random bytes (32)', hb + 2, 32)
-      let q = hb + 34
-      const sidLen = u8(b, q)
-      add(hs, 'Session ID Length', 'tls.handshake.session_id_length', sidLen, q, 1)
-      if (sidLen) add(hs, 'Session ID', 'tls.handshake.session_id', `${sidLen} bytes`, q + 1, sidLen)
-      q += 1 + sidLen
-      facts.helloVersion = tlsVersionName(ver)
-      if (ht === 1) {
-        const csLen = u16(b, q)
-        const suites: string[] = []
-        const cs = add(hs, `Cipher Suites (${csLen / 2} suites)`, 'tls.handshake.ciphersuites', undefined, q, 2 + csLen)
-        for (let i = 0; i < csLen; i += 2) {
-          const c = u16(b, q + 2 + i)
-          if ((c & 0x0f0f) === 0x0a0a) continue // GREASE
-          suites.push(cipherName(c))
-          add(cs, 'Cipher Suite', 'tls.handshake.ciphersuite', `${cipherName(c)} (${hex(c)})`, q + 2 + i, 2)
-        }
-        facts.cipherSuites = suites
-        q += 2 + csLen
-        const cmLen = u8(b, q)
-        add(hs, 'Compression Methods Length', 'tls.handshake.comp_methods_length', cmLen, q, 1)
-        q += 1 + cmLen
-      } else {
-        const c = u16(b, q)
-        facts.chosenCipher = cipherName(c)
-        add(hs, 'Cipher Suite', 'tls.handshake.ciphersuite', `${cipherName(c)} (${hex(c)})`, q, 2)
-        add(hs, 'Compression Method', 'tls.handshake.comp_method', b[q + 2], q + 2, 1)
-        q += 3
-      }
-      if (q + 2 <= hEnd) {
-        const extLen = u16(b, q)
-        add(hs, 'Extensions Length', 'tls.handshake.extensions_length', extLen, q, 2)
-        q += 2
-        const extEnd = Math.min(hEnd, q + extLen)
-        while (q + 4 <= extEnd) {
-          const et = u16(b, q)
-          const el = u16(b, q + 2)
-          if ((et & 0x0f0f) === 0x0a0a) {
-            q += 4 + el
-            continue
+      // Reads are bounded by the message end so a truncated Hello stops cleanly instead of reading the next record.
+      const b = ctx.b.subarray(0, hEnd)
+      try {
+        const ver = u16(b, hb)
+        add(hs, 'Version', 'tls.handshake.version', `${tlsVersionName(ver)} (${hex(ver)})`, hb, 2)
+        add(hs, 'Random', 'tls.handshake.random', 'random bytes (32)', hb + 2, 32)
+        let q = hb + 34
+        const sidLen = u8(b, q)
+        add(hs, 'Session ID Length', 'tls.handshake.session_id_length', sidLen, q, 1)
+        if (sidLen) add(hs, 'Session ID', 'tls.handshake.session_id', `${sidLen} bytes`, q + 1, sidLen)
+        q += 1 + sidLen
+        facts.helloVersion = tlsVersionName(ver)
+        if (ht === 1) {
+          const csLen = u16(b, q)
+          const suites: string[] = []
+          const cs = add(hs, `Cipher Suites (${csLen / 2} suites)`, 'tls.handshake.ciphersuites', undefined, q, 2 + csLen)
+          for (let i = 0; i + 2 <= csLen && q + 4 + i <= hEnd; i += 2) {
+            const c = u16(b, q + 2 + i)
+            if ((c & 0x0f0f) === 0x0a0a) continue // GREASE
+            suites.push(cipherName(c))
+            add(cs, 'Cipher Suite', 'tls.handshake.ciphersuite', `${cipherName(c)} (${hex(c)})`, q + 2 + i, 2)
           }
-          const en = EXT_NAMES[et] ?? `Unknown type ${et}`
-          const ext = add(hs, `Extension: ${en} (len=${el})`, 'tls.handshake.extension', undefined, q, 4 + el)
-          add(ext, 'Type', 'tls.handshake.extension.type', `${en} (${et})`, q, 2)
-          add(ext, 'Length', 'tls.handshake.extension.len', el, q + 2, 2)
-          const d = q + 4
-          if (et === 0 && el >= 5) {
-            const nameLen = u16(b, d + 3)
-            let sni = ''
-            for (let i = 0; i < nameLen && d + 5 + i < b.length; i++) sni += String.fromCharCode(b[d + 5 + i])
-            add(ext, 'Server Name Indication extension', 'tls.handshake.extensions_server_name_list', undefined, d, el)
-            add(ext, 'Server Name', 'tls.handshake.extensions_server_name', sni, d + 5, nameLen)
-            facts.sni = sni
-            ext.name = `Extension: server_name (len=${el}) name=${sni}`
-          } else if (et === 43) {
-            const vers: string[] = []
-            if (ht === 1) {
-              const n = b[d]
-              for (let i = 0; i < n; i += 2) {
-                const v = u16(b, d + 1 + i)
-                if ((v & 0x0f0f) !== 0x0a0a) vers.push(tlsVersionName(v))
-              }
-            } else vers.push(tlsVersionName(u16(b, d)))
-            add(ext, ht === 1 ? 'Supported Versions' : 'Supported Version', 'tls.handshake.extensions.supported_version', vers.join(', '), d, el)
-            facts.supportedVersions = vers
-          } else if (et === 16 && el > 2) {
-            const protos: string[] = []
-            let r = d + 2
-            while (r < d + el) {
-              const pl = b[r]
-              let s = ''
-              for (let i = 0; i < pl; i++) s += String.fromCharCode(b[r + 1 + i])
-              protos.push(s)
-              r += 1 + pl
+          facts.cipherSuites = suites
+          q += 2 + csLen
+          const cmLen = u8(b, q)
+          add(hs, 'Compression Methods Length', 'tls.handshake.comp_methods_length', cmLen, q, 1)
+          q += 1 + cmLen
+        } else {
+          const c = u16(b, q)
+          facts.chosenCipher = cipherName(c)
+          add(hs, 'Cipher Suite', 'tls.handshake.ciphersuite', `${cipherName(c)} (${hex(c)})`, q, 2)
+          add(hs, 'Compression Method', 'tls.handshake.comp_method', b[q + 2], q + 2, 1)
+          q += 3
+        }
+        if (q + 2 <= hEnd) {
+          const extLen = u16(b, q)
+          add(hs, 'Extensions Length', 'tls.handshake.extensions_length', extLen, q, 2)
+          q += 2
+          const extEnd = Math.min(hEnd, q + extLen)
+          while (q + 4 <= extEnd) {
+            const et = u16(b, q)
+            const el = u16(b, q + 2)
+            if ((et & 0x0f0f) === 0x0a0a) {
+              q += 4 + el
+              continue
             }
-            add(ext, 'ALPN Protocols', 'tls.handshake.extensions_alpn_str', protos.join(', '), d, el)
+            const en = EXT_NAMES[et] ?? `Unknown type ${et}`
+            const ext = add(hs, `Extension: ${en} (len=${el})`, 'tls.handshake.extension', undefined, q, 4 + el)
+            add(ext, 'Type', 'tls.handshake.extension.type', `${en} (${et})`, q, 2)
+            add(ext, 'Length', 'tls.handshake.extension.len', el, q + 2, 2)
+            const d = q + 4
+            if (et === 0 && el >= 5) {
+              const nameLen = u16(b, d + 3)
+              let sni = ''
+              for (let i = 0; i < nameLen && d + 5 + i < hEnd; i++) sni += String.fromCharCode(b[d + 5 + i])
+              add(ext, 'Server Name Indication extension', 'tls.handshake.extensions_server_name_list', undefined, d, el)
+              if (d + 5 + nameLen <= hEnd) {
+                add(ext, 'Server Name', 'tls.handshake.extensions_server_name', sni, d + 5, nameLen)
+                facts.sni = sni
+                ext.name = `Extension: server_name (len=${el}) name=${sni}`
+              } else {
+                // Never report half a hostname: the rest is in the next segment.
+                add(ext, 'Server Name [truncated]', 'tls.handshake.extensions_server_name.truncated', `${sni}…`, d + 5, hEnd - d - 5)
+              }
+            } else if (et === 43) {
+              const vers: string[] = []
+              if (ht === 1) {
+                const n = b[d]
+                for (let i = 0; i < n; i += 2) {
+                  const v = u16(b, d + 1 + i)
+                  if ((v & 0x0f0f) !== 0x0a0a) vers.push(tlsVersionName(v))
+                }
+              } else vers.push(tlsVersionName(u16(b, d)))
+              add(ext, ht === 1 ? 'Supported Versions' : 'Supported Version', 'tls.handshake.extensions.supported_version', vers.join(', '), d, el)
+              facts.supportedVersions = vers
+            } else if (et === 16 && el > 2) {
+              const protos: string[] = []
+              let r = d + 2
+              while (r < d + el && r < hEnd) {
+                const pl = b[r]
+                let s = ''
+                for (let i = 0; i < pl; i++) s += String.fromCharCode(b[r + 1 + i])
+                protos.push(s)
+                r += 1 + pl
+              }
+              add(ext, 'ALPN Protocols', 'tls.handshake.extensions_alpn_str', protos.join(', '), d, el)
+            }
+            q += 4 + el
           }
-          q += 4 + el
         }
+      } catch (e) {
+        if (!(e instanceof TruncatedError)) throw e
+        add(hs, '[message continues in the next segment]', 'tls.handshake.truncated', undefined, hEnd, 0)
       }
       infos.push(ht === 1 && facts.sni ? `Client Hello (SNI=${facts.sni})` : name)
     } else {
-      if (hlen) add(hs, name === 'Certificate' ? 'Certificates' : 'Body', 'tls.handshake.body', `${hlen} bytes`, hb, Math.min(hlen, recEnd - hb))
+      if (hlen) add(hs, name === 'Certificate' ? 'Certificates' : 'Body', 'tls.handshake.body', `${hlen} bytes${overruns ? ` (${hEnd - hb} in this segment)` : ''}`, hb, hEnd - hb)
       infos.push(name)
     }
-    p = hEnd
+    if (overruns) return
+    p = hb + hlen
   }
 }

@@ -84,12 +84,13 @@ export function dissectHttp(ctx: DissectCtx, o: number, len: number): void {
       hdr.warn = true
       const m = /^Basic\s+(\S+)/i.exec(value)
       if (m) {
+        hdr.secret = true
         const dec = decodeBase64(m[1])
         const valStart = p + line.indexOf(m[1])
         add(hdr, 'Credentials', 'http.authbasic', dec ?? '(invalid base64)', valStart, m[1].length, { secret: true, warn: true })
         if (dec) {
           const [user, ...pw] = dec.split(':')
-          ctx.facts.creds = { proto: 'HTTP', kind: 'basic', user, secret: pw.join(':') }
+          ctx.facts.creds = { proto: 'HTTP', kind: 'basic', user, secret: pw.join(':'), wire: m[1] }
           ctx.color = 'cleartext'
         }
       }

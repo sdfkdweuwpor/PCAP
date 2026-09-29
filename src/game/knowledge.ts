@@ -23,6 +23,7 @@ export type Kind =
   | 'http-notfound'
   | 'http-redirect'
   | 'http-unauth'
+  | 'http-error'
   | 'tls-ch'
   | 'tls-sh'
   | 'tls-appdata'
@@ -70,6 +71,8 @@ export const SERVICES: Record<number, string> = {
   8080: 'HTTP-alt',
 }
 export const serviceName = (port?: number) => (port !== undefined ? (SERVICES[port] ?? `port ${port}`) : '')
+/** Well-known or registered service port (as opposed to an ephemeral client port). */
+const isServicePort = (port?: number) => port !== undefined && (port < 1024 || SERVICES[port] !== undefined)
 
 /** Values available to templates. */
 export interface Vars {
@@ -267,6 +270,15 @@ export const KB: Record<Kind, KindInfo> = {
     means: (v) => `${v.server} demands credentials before it will serve the resource.`,
     matters: 'Repeated 401s from one source suggest password guessing against the web login.',
     deeper: RFC_HTTP + ' 401 includes WWW-Authenticate naming the scheme (e.g. Basic, which is just base64).',
+    confusables: ['http-ok', 'http-notfound', 'http-redirect'],
+  },
+  'http-error': {
+    concept: 'http',
+    label: (v) => `${v.status} Error`,
+    statement: 'The web server reports that the request failed or was refused outright.',
+    means: (v) => `${v.server} could not or would not complete the request (status ${v.status}).`,
+    matters: 'Bursts of 4xx from one client suggest probing; 5xx errors can mean an exploit attempt crashed the app.',
+    deeper: RFC_HTTP + ' 4xx status codes blame the request (403 forbidden, 405 bad method); 5xx blame the server (500, 502, 503).',
     confusables: ['http-ok', 'http-notfound', 'http-redirect'],
   },
   'tls-ch': {
@@ -546,6 +558,7 @@ export class Kb {
       if (s >= 300 && s < 400) return 'http-redirect'
       if (s === 401) return 'http-unauth'
       if (s === 404) return 'http-notfound'
+      if (s >= 400) return 'http-error'
     }
     if (f.tls) {
       if (f.tls.handshakeTypes.includes('Client Hello')) return 'tls-ch'
@@ -590,10 +603,16 @@ export class Kb {
     const dst = f.ip?.dst ?? p.dst
     const sport = f.tcp?.srcPort ?? f.udp?.srcPort ?? 0
     const dport = f.tcp?.dstPort ?? f.udp?.dstPort ?? 0
+    // Side A is whoever was seen first, which is only the client when the capture caught the SYN (or starts with
+    // a SYN-ACK, which the grouping already flips). Otherwise let the protocol or the service port decide.
     let client = c?.a.addr ?? src
     let server = c?.b.addr ?? dst
-    if (f.dns) [client, server] = f.dns.isResponse ? [dst, src] : [src, dst]
-    const serverPort = c?.b.port ?? dport
+    let serverPort = c?.b.port ?? dport
+    const sawOpen = c?.handshake?.syn !== undefined || c?.handshake?.synAck !== undefined
+    if (c && !sawOpen && isServicePort(c.a.port) && !isServicePort(c.b.port)) [client, server, serverPort] = [c.b.addr, c.a.addr, c.a.port ?? 0]
+    const toServer = f.http ? f.http.isRequest : f.dns ? !f.dns.isResponse : undefined
+    if (toServer !== undefined) [client, server, serverPort] = toServer ? [src, dst, dport] : [dst, src, sport]
+    const dhcpIp = [f.dhcp?.yiaddr, f.dhcp?.requestedIp].find((a) => a && a !== '0.0.0.0') ?? ''
     const ans = f.dns?.answers.find((a) => a.type === 'A' || a.type === 'AAAA') ?? f.dns?.answers[0]
     return {
       src,
@@ -613,7 +632,7 @@ export class Kb {
       sni: f.tls?.sni ?? '',
       cipher: f.tls?.chosenCipher ?? '',
       mac: f.arp?.senderMac ?? f.dhcp?.clientMac ?? f.eth?.src ?? '',
-      ip: f.arp?.senderIp ?? f.dhcp?.yiaddr ?? f.dhcp?.requestedIp ?? '',
+      ip: f.arp ? f.arp.senderIp : dhcpIp,
       target: f.arp?.targetIp ?? '',
       user: this.userFor(p),
     }
@@ -662,11 +681,17 @@ export class Kb {
   }
 }
 
+/** A packet's secret in every form it can appear in text: decoded and as sent on the wire. */
+export function secretsOf(p: PacketSummary): string[] {
+  const c = p.facts.creds
+  return [c?.wire, c?.secret].filter((s): s is string => !!s)
+}
+
 /** Info column with credential secrets masked. */
 export function maskInfo(p: PacketSummary): string {
-  const s = p.facts.creds?.secret
-  if (!s) return p.info
-  return p.info.split(s).join('•'.repeat(Math.min(8, s.length)))
+  let out = p.info
+  for (const s of secretsOf(p)) out = out.split(s).join('•'.repeat(Math.min(8, s.length)))
+  return out
 }
 
 /** Field keys that best illustrate a packet kind — used by "Show me" when a question names none. */

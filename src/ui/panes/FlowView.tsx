@@ -97,7 +97,8 @@ export function FlowView(props: Props) {
         selected={selected}
         playToken={props.playToken ?? 0}
         startAt={props.startAt ?? 0}
-        focus={!props.compact && sweep ? { packet: sweep.packet, token: sweep.token } : null}
+        focusPacket={!props.compact && sweep ? sweep.packet : null}
+        focusToken={!props.compact && sweep ? sweep.token : 0}
       />
     </div>
   )
@@ -113,17 +114,25 @@ interface LadderProps {
   selected: number | null
   playToken: number
   startAt: number
-  focus: { packet: number; token: number } | null
+  /** "Show me" target; a new token replays it even for the same packet. */
+  focusPacket: number | null
+  focusToken: number
 }
 
-function Ladder({ index, kb, frames, compact, autoPlay, highlight, selected, playToken, startAt, focus }: LadderProps) {
+function Ladder({ index, kb, frames, compact, autoPlay, highlight, selected, playToken, startAt, focusPacket, focusToken }: LadderProps) {
   const reduced = useReduced()
-  const packets = frames.map((n) => index.packets[n - 1]).filter(Boolean)
+  const packets = useMemo(() => frames.map((n) => index.packets[n - 1]).filter(Boolean), [frames, index])
   const n = packets.length
-  const [head, setHead] = useState(autoPlay ? startAt : n)
+  const [head, setHeadState] = useState(autoPlay ? startAt : n)
   const [playing, setPlaying] = useState(autoPlay)
   const [speed, setSpeed] = useState(1)
   const stopAt = useRef<number | null>(null)
+  // The playback loop reads and advances the head outside React's updater queue, so it can stop itself reliably.
+  const headRef = useRef(head)
+  const setHead = useCallback((h: number) => {
+    headRef.current = h
+    setHeadState(h)
+  }, [])
 
   // Lanes in order of first appearance; overflow collapses into "other".
   const lanes = useMemo(() => {
@@ -151,52 +160,44 @@ function Ladder({ index, kb, frames, compact, autoPlay, highlight, selected, pla
     setHead(startAt)
     setPlaying(true)
     stopAt.current = null
-  }, [playToken, startAt])
+  }, [playToken, startAt, setHead])
 
   // "Show me": jump to just before the packet and play that single arrow.
   useEffect(() => {
-    if (!focus) return
-    const i = frames.indexOf(focus.packet)
+    if (focusPacket === null) return
+    const i = frames.indexOf(focusPacket)
     if (i < 0) return
     setHead(i)
     stopAt.current = i + 1
     setPlaying(true)
-  }, [focus, frames])
+  }, [focusPacket, focusToken, frames, setHead])
 
   // Playback loop. Reduced motion: discrete steps, no travelling pill.
   useEffect(() => {
     if (!playing) return
+    const advance = (next: number) => {
+      const target = stopAt.current ?? n
+      setHead(Math.min(target, next))
+      if (next < target) return true
+      setPlaying(false)
+      stopAt.current = null
+      return false
+    }
     if (reduced) {
-      const id = setInterval(() => {
-        setHead((h) => {
-          const target = stopAt.current ?? n
-          const next = Math.min(target, Math.floor(h) + 1)
-          if (next >= target) setPlaying(false)
-          return next
-        })
-      }, 600 / speed)
+      const id = setInterval(() => advance(Math.floor(headRef.current) + 1), 600 / speed)
       return () => clearInterval(id)
     }
     let raf = 0
     let last = performance.now()
     const tick = (t: number) => {
-      const dt = (t - last) / 1000
+      // rAF timestamps can precede the performance.now() above; a backgrounded tab can return a huge gap.
+      const dt = Math.min(0.25, Math.max(0, (t - last) / 1000))
       last = t
-      let done = false
-      setHead((h) => {
-        const target = stopAt.current ?? n
-        const next = Math.min(target, h + dt * 1.6 * speed)
-        if (next >= target) done = true
-        return next
-      })
-      if (done) {
-        setPlaying(false)
-        stopAt.current = null
-      } else raf = requestAnimationFrame(tick)
+      if (advance(headRef.current + dt * 1.6 * speed)) raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [playing, speed, n, reduced])
+  }, [playing, speed, n, reduced, setHead])
 
   // TCP connections drawn in this view: handshake zipper + lifetime band.
   const conns = useMemo(() => {
@@ -213,11 +214,12 @@ function Ladder({ index, kb, frames, compact, autoPlay, highlight, selected, pla
       const ack = frames.indexOf(hs.ack)
       if (syn < 0 || synAck < 0 || ack < 0) continue
       const inView = c.packets.map((x) => frames.indexOf(x)).filter((i) => i >= 0)
-      const closeIdx = c.packets
-        .map((x) => frames.indexOf(x))
-        .filter((i) => i >= 0 && (packets[i].facts.tcp?.flags.fin || packets[i].facts.tcp?.flags.rst))
-      const end = c.closedBy && closeIdx.length ? (c.closedBy === 'rst' ? closeIdx.find((i) => packets[i].facts.tcp!.flags.rst)! : closeIdx[closeIdx.length - 1]) : Math.max(...inView)
-      out.push({ id: c.id, syn, synAck, ack, end, closedBy: c.closedBy, a: laneOf(c.a.addr), b: laneOf(c.b.addr) })
+      // Only a close that is drawn in this view ends the band; otherwise it runs to the last packet shown.
+      const rst = inView.find((i) => packets[i].facts.tcp?.flags.rst)
+      const fins = inView.filter((i) => packets[i].facts.tcp?.flags.fin)
+      const closedBy = rst !== undefined ? 'rst' : fins.length ? 'fin' : undefined
+      const end = rst ?? fins.at(-1) ?? Math.max(...inView)
+      out.push({ id: c.id, syn, synAck, ack, end, closedBy, a: laneOf(c.a.addr), b: laneOf(c.b.addr) })
     }
     return out.slice(0, 12)
   }, [packets, frames, index, laneOf])
@@ -340,7 +342,7 @@ function Ladder({ index, kb, frames, compact, autoPlay, highlight, selected, pla
         speed={speed}
         compact={compact}
         onPlay={() => {
-          if (head >= n) setHead(0)
+          if (headRef.current >= n) setHead(0)
           stopAt.current = null
           setPlaying((p) => !p)
         }}
@@ -350,7 +352,7 @@ function Ladder({ index, kb, frames, compact, autoPlay, highlight, selected, pla
         }}
         onStep={(d) => {
           setPlaying(false)
-          setHead((h) => Math.max(0, Math.min(n, Math.round(h) + d)))
+          setHead(Math.max(0, Math.min(n, Math.round(headRef.current) + d)))
         }}
         onRestart={() => {
           setHead(0)

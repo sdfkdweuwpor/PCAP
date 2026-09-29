@@ -7,6 +7,7 @@ import { CONCEPT_LABEL, MODE_INFO, type Concept, type Mode } from '../../game/ty
 import { useCapture } from '../../store/capture'
 import { useGame, type PlayMode } from '../../store/game'
 import { useProgress } from '../../store/progress'
+import { consoleHotkeyAllowed } from '../hotkeys'
 import { Kbd } from '../term'
 
 interface Row {
@@ -56,7 +57,7 @@ export function ModeMenu() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (!consoleHotkeyAllowed(e)) return
       const r = rows.find((x) => x.key === e.key.toLowerCase())
       if (r && playable(r)) {
         e.preventDefault()
@@ -65,7 +66,8 @@ export function ModeMenu() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- playable() only reads rows and unlocked
+  }, [rows, unlocked, start])
 
   const weak = (Object.entries(concepts) as [Concept, { seen: number; correct: number }][])
     .filter(([, s]) => s.seen >= 2 && s.correct / s.seen < 0.75)

@@ -80,7 +80,7 @@ function challenges(ctx: GenCtx): Challenge[] {
     id: 'fin',
     tier: 'Analyst',
     concept: 'tcp-teardown',
-    prompt: 'Show the packets that start a graceful TCP close.',
+    prompt: 'Show every packet where one side says it has finished sending (a graceful close).',
     hint: 'Graceful closes use the FIN flag.',
     select: (p) => !!p.facts.tcp?.flags.fin,
     reference: 'tcp.flags.fin == 1',
@@ -297,9 +297,24 @@ export function gradeFilter(q: FilterQuestion, index: CaptureIndex, text: string
   const hit = matched.filter((n) => want.has(n)).length
   const extra = matched.length - hit
   const missing = q.target.filter((n) => !got.has(n)).length
-  const jaccard = hit / (want.size + got.size - hit || 1)
+  const precision = matched.length ? hit / matched.length : 0
+  const recall = want.size ? hit / want.size : 0
   const summary = `Matched ${matched.length} frame${matched.length === 1 ? '' : 's'}: ${hit} right, ${extra} extra, ${missing} missing.`
   if (extra === 0 && missing === 0) return { score: 1, note: `Exact match — ${summary}`, matched }
-  if (jaccard >= 0.6) return { score: 0.5, note: `Close — ${summary}`, matched }
-  return { score: 0, note: summary, matched }
+  if (precision >= 0.8 && recall >= 0.8) return { score: 0.5, note: `Close — ${summary}`, matched }
+  return { score: 0, note: matched.length ? summary : summary + caseHint(index, text), matched }
+}
+
+/** When a filter matches nothing only because of the case of a quoted value, say so. */
+function caseHint(index: CaptureIndex, text: string): string {
+  if (!/"[^"]*[a-z][^"]*"|"[^"]*[A-Z][^"]*"/.test(text)) return ''
+  for (const change of [(v: string) => v.toUpperCase(), (v: string) => v.toLowerCase()]) {
+    const variant = text.replace(/"([^"]*)"/g, (_, v: string) => `"${change(v)}"`)
+    try {
+      if (variant !== text && matchSet(index, variant).length) return ' Text comparisons are case-sensitive, as in Wireshark: check the capitalisation of your quoted value.'
+    } catch {
+      return ''
+    }
+  }
+  return ''
 }

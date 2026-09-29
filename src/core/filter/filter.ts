@@ -7,6 +7,7 @@
 //   primary := '(' expr ')' | FIELD [op VALUE]
 //   op      := == eq != ne > gt < lt >= ge <= le contains
 
+import { DNS_TYPES } from '../dissect/dns'
 import type { PacketSummary } from '../types'
 
 export class FilterError extends Error {
@@ -22,6 +23,9 @@ type Getter = (p: PacketSummary) => Val[] | Val | undefined
 const proto = (name: string): Getter => (p) => p.facts.protos.includes(name)
 const flag = (k: keyof NonNullable<PacketSummary['facts']['tcp']>['flags']): Getter => (p) =>
   p.facts.tcp ? p.facts.tcp.flags[k] : undefined
+const v4 = (p: PacketSummary) => (p.facts.ip?.version === 4 ? p.facts.ip : undefined)
+const FLAG_BITS = { fin: 0x01, syn: 0x02, rst: 0x04, psh: 0x08, ack: 0x10, urg: 0x20, ece: 0x40, cwr: 0x80 } as const
+const DNS_TYPE_CODES: Record<string, number> = Object.fromEntries(Object.entries(DNS_TYPES).map(([n, name]) => [name.toUpperCase(), Number(n)]))
 
 export const FIELDS: Record<string, Getter> = {
   // Protocol presence
@@ -71,17 +75,18 @@ export const FIELDS: Record<string, Getter> = {
   'ip.addr': (p) => (p.facts.ip?.version === 4 ? [p.facts.ip.src, p.facts.ip.dst] : undefined),
   'ip.src': (p) => (p.facts.ip?.version === 4 ? p.facts.ip.src : undefined),
   'ip.dst': (p) => (p.facts.ip?.version === 4 ? p.facts.ip.dst : undefined),
-  'ip.ttl': (p) => (p.facts.ip?.version === 4 ? p.facts.ip.ttl : undefined),
-  'ip.proto': (p) => p.facts.ip?.proto,
-  'ip.len': (p) => p.facts.ip?.len,
-  'ip.id': (p) => p.facts.ip?.id,
-  'ip.flags.df': (p) => p.facts.ip?.df,
-  'ip.flags.mf': (p) => p.facts.ip?.mf,
-  'ip.frag_offset': (p) => p.facts.ip?.fragOffset,
+  'ip.ttl': (p) => v4(p)?.ttl,
+  'ip.proto': (p) => v4(p)?.proto,
+  'ip.len': (p) => v4(p)?.len,
+  'ip.id': (p) => v4(p)?.id,
+  'ip.flags.df': (p) => v4(p)?.df,
+  'ip.flags.mf': (p) => v4(p)?.mf,
+  'ip.frag_offset': (p) => v4(p)?.fragOffset,
   'ipv6.addr': (p) => (p.facts.ip?.version === 6 ? [p.facts.ip.src, p.facts.ip.dst] : undefined),
   'ipv6.src': (p) => (p.facts.ip?.version === 6 ? p.facts.ip.src : undefined),
   'ipv6.dst': (p) => (p.facts.ip?.version === 6 ? p.facts.ip.dst : undefined),
   'ipv6.hlim': (p) => (p.facts.ip?.version === 6 ? p.facts.ip.ttl : undefined),
+  'ipv6.nxt': (p) => (p.facts.ip?.version === 6 ? p.facts.ip.proto : undefined),
   // ICMP
   'icmp.type': (p) => (p.facts.icmp && !p.facts.icmp.v6 ? p.facts.icmp.type : undefined),
   'icmp.code': (p) => (p.facts.icmp && !p.facts.icmp.v6 ? p.facts.icmp.code : undefined),
@@ -94,7 +99,14 @@ export const FIELDS: Record<string, Getter> = {
   'tcp.ack': (p) => p.facts.tcp?.relAck ?? p.facts.tcp?.ack,
   'tcp.len': (p) => p.facts.tcp?.payloadLen,
   'tcp.window_size_value': (p) => p.facts.tcp?.window,
-  'tcp.stream': (p) => (p.facts.tcp ? p.streamId : undefined),
+  'tcp.stream': (p) => (p.facts.tcp ? p.protoStream : undefined),
+  'tcp.flags': (p) => {
+    const t = p.facts.tcp
+    if (!t) return undefined
+    let n = 0
+    for (const k of Object.keys(FLAG_BITS) as (keyof typeof FLAG_BITS)[]) if (t.flags[k]) n |= FLAG_BITS[k]
+    return n
+  },
   'tcp.flags.syn': flag('syn'),
   'tcp.flags.ack': flag('ack'),
   'tcp.flags.fin': flag('fin'),
@@ -107,10 +119,14 @@ export const FIELDS: Record<string, Getter> = {
   'udp.srcport': (p) => p.facts.udp?.srcPort,
   'udp.dstport': (p) => p.facts.udp?.dstPort,
   'udp.length': (p) => p.facts.udp?.len,
-  'udp.stream': (p) => (p.facts.udp ? p.streamId : undefined),
+  'udp.stream': (p) => (p.facts.udp ? p.protoStream : undefined),
   // DNS
   'dns.qry.name': (p) => p.facts.dns?.qname,
-  'dns.qry.type': (p) => p.facts.dns?.qtype,
+  'dns.qry.type': (p) => {
+    const t = p.facts.dns?.qtype
+    if (!t) return undefined
+    return DNS_TYPE_CODES[t.toUpperCase()] ?? (/^TYPE(\d+)$/.exec(t) ? Number(t.slice(4)) : undefined)
+  },
   'dns.flags.response': (p) => p.facts.dns?.isResponse,
   'dns.flags.rcode': (p) => p.facts.dns?.rcode,
   'dns.id': (p) => p.facts.dns?.id,
@@ -314,9 +330,33 @@ function parseNumber(s: string): number | null {
 
 function ipToInt(ip: string): number | null {
   const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(ip)
-  if (!m) return null
+  if (!m || m.slice(1).some((o) => +o > 255)) return null
   return ((+m[1] << 24) >>> 0) + (+m[2] << 16) + (+m[3] << 8) + +m[4]
 }
+
+/** An IPv6 address as eight 16-bit groups, or null. Accepts :: compression and an embedded IPv4 tail. */
+export function ipv6Groups(s: string): number[] | null {
+  let text = s.toLowerCase()
+  const v4tail = /(\d+\.\d+\.\d+\.\d+)$/.exec(text)
+  if (v4tail) {
+    const n = ipToInt(v4tail[1])
+    if (n === null) return null
+    text = text.slice(0, -v4tail[1].length) + `${(n >>> 16).toString(16)}:${(n & 0xffff).toString(16)}`
+  }
+  const halves = text.split('::')
+  if (halves.length > 2) return null
+  const part = (h: string) => (h ? h.split(':') : [])
+  const head = part(halves[0])
+  const tail = halves.length === 2 ? part(halves[1]) : []
+  const fill = 8 - head.length - tail.length
+  if (halves.length === 2 ? fill < 1 : fill !== 0) return null
+  const groups = [...head, ...Array(halves.length === 2 ? fill : 0).fill('0'), ...tail]
+  if (groups.some((g) => !/^[0-9a-f]{1,4}$/.test(g))) return null
+  return groups.map((g) => parseInt(g, 16))
+}
+
+/** Address-valued fields compare case-insensitively (MACs, IPv6); every other text field is case-sensitive. */
+const ADDRESS_FIELD = /^(eth\.(addr|src|dst)|ipv6\.(addr|src|dst)|arp\.(src|dst)\.hw_mac|dhcp\.hw\.mac_addr|dns\.aaaa)$/
 
 function makeComparison(name: string, getter: Getter, op: string, raw: string, quoted: boolean): Pred {
   // Booleans (flags): accept 1/0/true/false.
@@ -325,23 +365,40 @@ function makeComparison(name: string, getter: Getter, op: string, raw: string, q
     if (!['1', '0', 'true', 'false'].includes(raw.toLowerCase())) throw new FilterError(`${name} is a flag: compare it with 1 or 0.`)
     if (op !== '==' && op !== '!=') throw new FilterError(`Flags only support == and !=.`)
     return (p) => {
-      const v = getter(p)
-      if (v === undefined) return false
-      const eq = asArray(v).some((x) => Boolean(x) === want)
+      const vals = asArray(getter(p))
+      if (!vals.length) return false
+      const eq = vals.some((x) => Boolean(x) === want)
       return op === '==' ? eq : !eq
     }
   }
-  // CIDR on address fields.
-  const cidr = /^(\d+\.\d+\.\d+\.\d+)\/(\d+)$/.exec(raw)
-  if (cidr && !quoted) {
-    const base = ipToInt(cidr[1])!
-    const bits = Number(cidr[2])
-    const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0
-    const inNet = (v: Val) => {
-      const n = typeof v === 'string' ? ipToInt(v) : null
-      return n !== null && ((n & mask) >>> 0) === ((base & mask) >>> 0)
-    }
+  // CIDR on address fields (IPv4 a.b.c.d/n, IPv6 x::y/n).
+  const cidr = quoted ? null : /^([0-9a-f:.]+)\/(\d+)$/i.exec(raw)
+  if (cidr) {
     if (op !== '==' && op !== '!=') throw new FilterError('Subnets (CIDR) only support == and !=.')
+    const bits = Number(cidr[2])
+    let inNet: (v: Val) => boolean
+    const base4 = ipToInt(cidr[1])
+    if (base4 !== null) {
+      if (bits > 32) throw new FilterError(`/${bits} is not a valid IPv4 prefix length (0–32).`)
+      const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0
+      inNet = (v) => {
+        const n = typeof v === 'string' ? ipToInt(v) : null
+        return n !== null && ((n & mask) >>> 0) === ((base4 & mask) >>> 0)
+      }
+    } else {
+      const base6 = ipv6Groups(cidr[1])
+      if (!base6) throw new FilterError(`"${cidr[1]}" is not a valid IPv4 or IPv6 address.`)
+      if (bits > 128) throw new FilterError(`/${bits} is not a valid IPv6 prefix length (0–128).`)
+      inNet = (v) => {
+        const g = typeof v === 'string' ? ipv6Groups(v) : null
+        if (!g) return false
+        for (let i = 0, left = bits; left > 0; i++, left -= 16) {
+          const mask = left >= 16 ? 0xffff : (0xffff << (16 - left)) & 0xffff
+          if ((g[i] & mask) !== (base6[i] & mask)) return false
+        }
+        return true
+      }
+    }
     return (p) => {
       const vals = asArray(getter(p))
       if (!vals.length) return false
@@ -349,15 +406,17 @@ function makeComparison(name: string, getter: Getter, op: string, raw: string, q
       return op === '==' ? any : !any
     }
   }
-  const num = quoted ? null : parseNumber(raw)
-  const lraw = raw.toLowerCase()
+  // Symbolic values for numeric fields: dns.qry.type == AAAA.
+  const num = quoted ? null : (parseNumber(raw) ?? (name === 'dns.qry.type' ? (DNS_TYPE_CODES[raw.toUpperCase()] ?? null) : null))
+  // Wireshark compares strings case-sensitively; addresses are the exception (they're normalised first).
+  const fold = ADDRESS_FIELD.test(name)
+  const norm = (x: string) => (fold ? x.toLowerCase() : x)
+  const want = norm(raw)
+  const want6 = name.startsWith('ipv6.') || name === 'dns.aaaa' ? ipv6Groups(raw)?.join(':') : undefined
   const cmp = (v: Val): boolean => {
-    if (op === 'contains') return String(v).toLowerCase().includes(lraw)
+    if (op === 'contains') return norm(String(v)).includes(want)
     if (typeof v === 'number') {
-      if (num === null) {
-        // Allow symbolic values for some numeric fields, e.g. dns.qry.type == A.
-        return op === '==' ? String(v) === raw : false
-      }
+      if (num === null) return false
       switch (op) {
         case '==':
           return v === num
@@ -373,16 +432,20 @@ function makeComparison(name: string, getter: Getter, op: string, raw: string, q
           return v <= num
       }
     }
-    if (typeof v === 'boolean') return op === '==' ? v === (raw === '1' || lraw === 'true') : v !== (raw === '1' || lraw === 'true')
-    const sv = String(v).toLowerCase()
-    if (op === '==') return sv === lraw
-    if (op === '!=') return sv !== lraw
+    if (typeof v === 'boolean') {
+      const b = raw === '1' || raw.toLowerCase() === 'true'
+      return op === '==' ? v === b : v !== b
+    }
+    const sv = norm(String(v))
+    const same = sv === want || (want6 !== undefined && ipv6Groups(String(v))?.join(':') === want6)
+    if (op === '==') return same
+    if (op === '!=') return !same
     throw new FilterError(`"${op}" can't be used with text fields like ${name}; use == or contains.`)
   }
   if (op === '!=') {
     // Modern Wireshark semantics: a != b is !(a == b) for multi-valued fields.
     const eq = makeComparison(name, getter, '==', raw, quoted)
-    return (p) => getter(p) !== undefined && !eq(p)
+    return (p) => asArray(getter(p)).length > 0 && !eq(p)
   }
   return (p) => asArray(getter(p)).some(cmp)
 }

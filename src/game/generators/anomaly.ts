@@ -2,7 +2,7 @@
 
 import type { Anomaly, AnomalyKind } from '../../core/types'
 import type { Concept, Question } from '../types'
-import { choice, notNull, type Generator } from './context'
+import { choice, GenCtx, notNull, type Generator } from './context'
 
 const SUMMARY: Record<AnomalyKind, string> = {
   'port-scan': 'A host is probing many ports on another host.',
@@ -125,7 +125,7 @@ export const anomalyGenerators: Generator[] = [
       const out: (Question | null)[] = []
       for (const a of ctx.index.anomalies) {
         if (a.kind === 'rst-storm' && detected.has('port-scan')) continue // a symptom of the scan, not a separate story
-        const others = (Object.keys(SUMMARY) as AnomalyKind[]).filter((k) => !detected.has(k))
+        const others = (Object.keys(SUMMARY) as AnomalyKind[]).filter((k) => !detected.has(k) && !partlyTrue(ctx, k))
         const distractors = others.sort(() => ctx.rng() - 0.5).map((k) => SUMMARY[k])
         const base = {
           mode: 'anomaly' as const,
@@ -175,6 +175,31 @@ export const anomalyGenerators: Generator[] = [
     },
   },
 ]
+
+/**
+ * True when the capture shows enough of an anomaly's raw signs (below the detector's threshold) that its summary
+ * would be a defensible answer too — such kinds can't serve as wrong options.
+ */
+function partlyTrue(ctx: GenCtx, k: AnomalyKind): boolean {
+  const ps = ctx.packets
+  switch (k) {
+    case 'cleartext-creds':
+      return ps.some((p) => p.facts.creds)
+    case 'failed-logins':
+      return ps.some((p) => {
+        const a = p.facts.app
+        return a?.code === 530 || a?.code === 535 || a?.command === '-ERR' || a?.command === 'NO' || p.facts.http?.status === 401
+      })
+    case 'port-scan':
+      return ctx.of('tcp-rst-closed').length >= 3
+    case 'rst-storm':
+      return ps.filter((p) => p.facts.tcp?.flags.rst).length >= 5
+    case 'dns-tunnel':
+      return ps.some((p) => p.facts.dns?.qname.split('.').some((l) => l.length > 30))
+    default:
+      return false
+  }
+}
 
 function hintFor(k: AnomalyKind): string {
   switch (k) {

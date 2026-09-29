@@ -30,8 +30,10 @@ export function DrillView() {
   const now = useTicker(startedAt !== null && !result, 200)
   const bestWpm = useProgress((s) => s.drill.bestWpm)
 
-  const elapsed = startedAt ? Math.min(SECONDS, (now - startedAt) / 1000) : 0
+  // The ticker's last value can predate the first keystroke, so clamp at zero.
+  const elapsed = startedAt ? Math.min(SECONDS, Math.max(0, (now - startedAt) / 1000)) : 0
   const left = SECONDS - elapsed
+  const timeUp = startedAt !== null && left <= 0
   const current = words[done.length]
 
   // Count characters: committed words score position-by-position; the word in progress counts what's typed so far.
@@ -55,14 +57,14 @@ export function DrillView() {
   const stats = drillStats(live.correct, live.total, done.length, Math.max(elapsed, 1))
 
   useEffect(() => {
-    if (startedAt !== null && !result && left <= 0) {
+    if (timeUp && !result) {
       const final = tally(done, typed, current)
       const s = drillStats(final.correct, final.total, done.length, SECONDS)
       const xp = useGame.getState().finishDrill(s.wpm, s.accuracy)
       setResult({ wpm: s.wpm, accuracy: s.accuracy, xp, best: s.wpm > bestWpm })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once when the clock hits zero
-  }, [left <= 0, startedAt, result])
+  }, [timeUp, result])
 
   useEffect(() => {
     if (!result) input.current?.focus()

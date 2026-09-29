@@ -54,6 +54,8 @@ export interface CredentialFact {
   kind: 'user' | 'pass' | 'basic' | 'login'
   user?: string
   secret?: string
+  /** The secret as it appears on the wire when it is encoded (base64 for HTTP Basic and SMTP AUTH PLAIN). */
+  wire?: string
 }
 
 /** Compact protocol facts extracted during dissection. Drives filters, analysis and question generation. */
@@ -200,6 +202,8 @@ export interface PacketSummary {
   color: ColorRule
   facts: PacketFacts
   streamId: number
+  /** Index among conversations of the same protocol — what Wireshark calls tcp.stream / udp.stream. */
+  protoStream?: number
 }
 
 export interface Endpoint {
@@ -209,6 +213,8 @@ export interface Endpoint {
 
 export interface Conversation {
   id: number
+  /** Index among conversations of the same protocol (tcp.stream / udp.stream). */
+  protoIndex?: number
   proto: 'TCP' | 'UDP' | 'ICMP' | 'ARP' | 'Other'
   /** Application label, e.g. "HTTP", "DNS", "TLS". */
   app: string

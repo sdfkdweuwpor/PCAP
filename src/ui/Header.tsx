@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { useState } from 'react'
+import { useRef, useState, type KeyboardEvent } from 'react'
 import { nextRank, rankFor } from '../game/scoring'
 import { MODE_INFO } from '../game/types'
 import { useCapture } from '../store/capture'
@@ -12,10 +12,35 @@ export function ThemeSwitch() {
   const theme = useProgress((s) => s.settings.theme)
   const set = useProgress((s) => s.setSettings)
   const opts: Settings['theme'][] = ['amber', 'green', 'paper']
+  const refs = useRef<(HTMLButtonElement | null)[]>([])
+
+  // Radio-group keyboard pattern: arrows move the checked radio (roving tabindex, wraps around).
+  const onKeyDown = (e: KeyboardEvent) => {
+    const i = opts.indexOf(theme)
+    let j: number
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') j = (i + 1) % opts.length
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') j = (i - 1 + opts.length) % opts.length
+    else return
+    e.preventDefault()
+    e.stopPropagation()
+    set({ theme: opts[j] })
+    refs.current[j]?.focus()
+  }
+
   return (
-    <div role="radiogroup" aria-label="Screen" className="flex border border-line text-[11px] uppercase tracking-[0.1em]">
-      {opts.map((t) => (
-        <button key={t} role="radio" aria-checked={theme === t} onClick={() => set({ theme: t })} className={`px-2 py-0.5 ${theme === t ? 'bg-accent text-accent-ink' : 'text-muted hover:text-fg'}`}>
+    <div role="radiogroup" aria-label="Screen" onKeyDown={onKeyDown} className="flex border border-line text-[11px] uppercase tracking-[0.1em]">
+      {opts.map((t, i) => (
+        <button
+          key={t}
+          ref={(el) => {
+            refs.current[i] = el
+          }}
+          role="radio"
+          aria-checked={theme === t}
+          tabIndex={theme === t ? 0 : -1}
+          onClick={() => set({ theme: t })}
+          className={`px-2 py-0.5 ${theme === t ? 'bg-accent text-accent-ink' : 'text-muted hover:text-fg'}`}
+        >
           {t}
         </button>
       ))}
@@ -84,7 +109,7 @@ export function RankReadout() {
   const next = nextRank(xp)
   const frac = next ? (xp - rank.minXp) / (next.minXp - rank.minXp) : 1
   return (
-    <div className="flex shrink-0 items-center gap-3 text-[11px]" aria-label={`Rank ${rank.name}, ${xp} XP, streak ${streak}`}>
+    <div role="group" className="flex shrink-0 items-center gap-3 text-[11px]" aria-label={`Rank ${rank.name}, ${xp} XP, streak ${streak}`}>
       <span className="hidden md:inline">
         <span className="text-faint">rank</span> <span className="text-accent">{rank.name.toLowerCase()}</span>
       </span>
@@ -134,7 +159,7 @@ export function StatusBar() {
       </span>
       {p && (
         <span className="hidden min-w-0 truncate md:inline">
-          {p.protocol} {p.origLen}B stream {p.streamId >= 0 ? p.streamId : '–'}
+          {p.protocol} {p.origLen}B {p.facts.tcp ? 'tcp.stream' : p.facts.udp ? 'udp.stream' : 'stream'} {p.protoStream ?? (p.streamId >= 0 ? p.streamId : '–')}
           {field && <span className="text-fg"> · {field.key ?? field.name} @{field.offset}+{field.length}</span>}
         </span>
       )}

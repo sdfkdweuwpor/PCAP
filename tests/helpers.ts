@@ -1,14 +1,13 @@
 import { dissectFrame } from '../src/core/dissect'
-import { buildIndex, frameBytes, isnMapFromSummaries } from '../src/core/index/indexer'
+import { buildIndex, frameBytes, isnForPacket } from '../src/core/index/indexer'
 import type { CaptureIndex, Dissection, Field } from '../src/core/types'
 import { writePcap } from '../src/core/pcap/writer'
 
 export function indexOf(bytes: Uint8Array, name = 'test.pcap') {
   const index = buildIndex(bytes, name)
-  const isn = isnMapFromSummaries(index.packets)
   const dissect = (no: number): Dissection => {
     const p = index.packets[no - 1]
-    return dissectFrame(frameBytes(bytes, p), { no, ts: p.ts, relTime: p.relTime, origLen: p.origLen, linkType: p.linkType }, { tcpIsn: isn })
+    return dissectFrame(frameBytes(bytes, p), { no, ts: p.ts, relTime: p.relTime, origLen: p.origLen, linkType: p.linkType }, { tcpIsn: isnForPacket(p) })
   }
   return { index, dissect, bytes }
 }

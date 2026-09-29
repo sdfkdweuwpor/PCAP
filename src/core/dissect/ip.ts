@@ -45,6 +45,7 @@ export function dissectIpv4(ctx: DissectCtx, o: number): Transport {
   const b = ctx.b
   const vihl = u8(b, o)
   const ihl = (vihl & 0x0f) * 4
+  if ((vihl >> 4) !== 4 || ihl < 20) throw new Error(`Invalid IPv4 header (version ${vihl >> 4}, header length ${ihl} bytes)`)
   const tos = u8(b, o + 1)
   const totalLen = u16(b, o + 2)
   const id = u16(b, o + 4)
@@ -111,7 +112,8 @@ export function dissectIpv6(ctx: DissectCtx, o: number): Transport {
   add(l, 'Source Address', 'ipv6.src', src, o + 8, 16)
   add(l, 'Destination Address', 'ipv6.dst', dst, o + 24, 16)
   let p = o + 40
-  const end = Math.min(b.length, p + payLen)
+  // Payload length 0 means a jumbogram (or a capture tool that zeroed it): use the rest of the frame.
+  const end = payLen ? Math.min(b.length, p + payLen) : b.length
   let fragmentOnly = false
   // Walk extension headers.
   while (next === 0 || next === 43 || next === 60 || next === 44) {

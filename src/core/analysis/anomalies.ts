@@ -18,7 +18,7 @@ export const SUSPICIOUS_PORTS: Record<number, string> = {
 export function detectAnomalies(packets: PacketSummary[], convs: Conversation[]): Anomaly[] {
   const out: Anomaly[] = []
   const push = (a: Anomaly | null) => a && out.push(a)
-  push(detectPortScan(packets))
+  push(detectPortScan(packets, convs))
   push(detectSynFlood(packets, convs))
   push(detectArpSpoof(packets))
   push(detectCleartextCreds(packets))
@@ -29,8 +29,19 @@ export function detectAnomalies(packets: PacketSummary[], convs: Conversation[])
   return out
 }
 
-function detectPortScan(packets: PacketSummary[]): Anomaly | null {
-  // Pure SYNs from one source to one target across many distinct destination ports.
+/** Most events inside any window of `seconds` (times must be ascending). */
+function peakInWindow(times: number[], seconds: number): number {
+  let best = 0
+  for (let i = 0, j = 0; j < times.length; j++) {
+    while (times[j] - times[i] > seconds) i++
+    best = Math.max(best, j - i + 1)
+  }
+  return best
+}
+
+function detectPortScan(packets: PacketSummary[], convs: Conversation[]): Anomaly | null {
+  // Pure SYNs from one source to one target across many distinct destination ports, almost none of which turn
+  // into a real connection (a client that opens many sessions to one server completes its handshakes).
   const bySrcDst = new Map<string, { ports: Set<number>; frames: number[] }>()
   for (const p of packets) {
     const t = p.facts.tcp
@@ -45,6 +56,10 @@ function detectPortScan(packets: PacketSummary[]): Anomaly | null {
   for (const e of bySrcDst) if (!best || e[1].ports.size > best[1].ports.size) best = e
   if (!best || best[1].ports.size < 15) return null
   const [src, dst] = best[0].split('>')
+  const completed = new Set(
+    convs.filter((c) => c.proto === 'TCP' && c.a.addr === src && c.b.addr === dst && c.handshake?.ack !== undefined).map((c) => c.b.port),
+  )
+  if ([...best[1].ports].filter((p) => completed.has(p)).length > best[1].ports.size * 0.2) return null
   // Count closed-port replies.
   let rsts = 0
   const open = new Set<number>()
@@ -58,7 +73,7 @@ function detectPortScan(packets: PacketSummary[]): Anomaly | null {
     kind: 'port-scan',
     title: 'TCP SYN port scan',
     detail: `${src} sent SYNs to ${best[1].ports.size} different ports on ${dst}; ${rsts} were answered with RST (closed) and ${open.size} with SYN-ACK (open).`,
-    packets: best[1].frames.slice(0, 20),
+    packets: best[1].frames,
     severity: 'medium',
     evidence: { scanner: src, target: dst, ports: best[1].ports.size, rsts, openPorts: [...open].sort((a, b) => a - b).join(', ') || 'none' },
   }
@@ -66,20 +81,24 @@ function detectPortScan(packets: PacketSummary[]): Anomaly | null {
 
 function detectSynFlood(packets: PacketSummary[], convs: Conversation[]): Anomaly | null {
   // Many half-open connections to one service from many distinct sources.
-  const byTarget = new Map<string, { srcs: Set<string>; syns: number; frames: number[] }>()
+  // The SYNs must arrive as a burst (40+ within 10 s) and mostly from different addresses — the spoofing that
+  // separates a flood from one busy client or a scanner.
+  const byTarget = new Map<string, { srcs: Set<string>; syns: number; frames: number[]; times: number[] }>()
   for (const p of packets) {
     const t = p.facts.tcp
     if (!t || !p.facts.ip || !t.flags.syn || t.flags.ack) continue
     const k = `${p.facts.ip.dst}:${t.dstPort}`
     let e = byTarget.get(k)
-    if (!e) byTarget.set(k, (e = { srcs: new Set(), syns: 0, frames: [] }))
+    if (!e) byTarget.set(k, (e = { srcs: new Set(), syns: 0, frames: [], times: [] }))
     e.srcs.add(p.facts.ip.src)
     e.syns++
     e.frames.push(p.no)
+    e.times.push(p.relTime)
   }
-  let best: [string, { srcs: Set<string>; syns: number; frames: number[] }] | null = null
+  let best: [string, { srcs: Set<string>; syns: number; frames: number[]; times: number[] }] | null = null
   for (const e of byTarget) if (!best || e[1].syns > best[1].syns) best = e
-  if (!best || best[1].syns < 40 || best[1].srcs.size < 10) return null
+  if (!best || best[1].syns < 40 || best[1].srcs.size < best[1].syns * 0.5) return null
+  if (peakInWindow(best[1].times, 10) < 40) return null
   const [host, port] = [best[0].slice(0, best[0].lastIndexOf(':')), Number(best[0].slice(best[0].lastIndexOf(':') + 1))]
   const related = convs.filter((c) => c.proto === 'TCP' && c.b.addr === host && c.b.port === port)
   const completed = related.filter((c) => c.handshake?.ack !== undefined).length
@@ -88,37 +107,54 @@ function detectSynFlood(packets: PacketSummary[], convs: Conversation[]): Anomal
     kind: 'syn-flood',
     title: 'SYN flood (half-open connections)',
     detail: `${best[1].syns} SYNs hit ${host}:${port} from ${best[1].srcs.size} different source addresses, but only ${completed} of ${related.length} connections finished the handshake.`,
-    packets: best[1].frames.slice(0, 20),
+    packets: best[1].frames,
     severity: 'high',
     evidence: { target: `${host}:${port}`, syns: best[1].syns, sources: best[1].srcs.size, completed },
   }
 }
 
 function detectArpSpoof(packets: PacketSummary[]): Anomaly | null {
-  const seen = new Map<string, { mac: string; frame: number }>()
+  // Every (IP → MAC) claim in order. One new MAC announcing itself once is a replaced NIC or a DHCP reassignment;
+  // poisoning repeats the claim, or fights the real owner (the MAC flips back and forth).
+  const claimsByIp = new Map<string, { mac: string; frame: number }[]>()
   for (const p of packets) {
     const a = p.facts.arp
     if (!a || a.senderIp === '0.0.0.0') continue
-    const prev = seen.get(a.senderIp)
-    if (prev && prev.mac !== a.senderMac) {
-      // Count how many times the new MAC keeps claiming the IP.
-      const claims = packets.filter((q) => q.facts.arp?.senderIp === a.senderIp && q.facts.arp.senderMac === a.senderMac)
+    let list = claimsByIp.get(a.senderIp)
+    if (!list) claimsByIp.set(a.senderIp, (list = []))
+    list.push({ mac: a.senderMac, frame: p.no })
+  }
+  for (const [ip, list] of claimsByIp) {
+    const original = list[0]
+    for (const mac of new Set(list.map((c) => c.mac))) {
+      if (mac === original.mac) continue
+      const claims = list.filter((c) => c.mac === mac)
+      const flipBack = list.some((c) => c.mac === original.mac && c.frame > claims[0].frame)
+      if (claims.length < 2 && !flipBack) continue
+      const fromAttacker = packets.filter((q) => q.facts.arp?.senderMac === mac)
+      const n = claims.length
       return {
         kind: 'arp-spoof',
         title: 'ARP spoofing / cache poisoning',
-        detail: `${a.senderIp} was first announced by ${prev.mac}, then claimed by ${a.senderMac} (${claims.length} ARP messages). Two MACs for one IP is the signature of a man-in-the-middle.`,
-        packets: claims.map((c) => c.no).slice(0, 20),
+        detail: `${ip} was first announced by ${original.mac}, then claimed by ${mac} (${n} ARP message${n === 1 ? '' : 's'}). Two MACs for one IP is the signature of a man-in-the-middle.`,
+        packets: fromAttacker.map((q) => q.no),
         severity: 'high',
-        evidence: { ip: a.senderIp, originalMac: prev.mac, originalFrame: prev.frame, attackerMac: a.senderMac, claims: claims.length },
+        evidence: { ip, originalMac: original.mac, originalFrame: original.frame, attackerMac: mac, claims: n },
       }
     }
-    if (!prev) seen.set(a.senderIp, { mac: a.senderMac, frame: p.no })
   }
   return null
 }
 
+const ANONYMOUS = new Set(['anonymous', 'ftp'])
+
 function detectCleartextCreds(packets: PacketSummary[]): Anomaly | null {
-  const hits = packets.filter((p) => p.facts.creds)
+  // Anonymous FTP "passwords" are just an e-mail address by convention, so a stream whose USER is anonymous
+  // doesn't count.
+  const anonStreams = new Set(
+    packets.filter((p) => p.facts.creds?.proto === 'FTP' && ANONYMOUS.has(p.facts.creds.user?.toLowerCase() ?? '')).map((p) => p.streamId),
+  )
+  const hits = packets.filter((p) => p.facts.creds && !(p.facts.creds.proto === 'FTP' && anonStreams.has(p.streamId)))
   if (!hits.length) return null
   const protos = [...new Set(hits.map((p) => p.facts.creds!.proto))]
   const user = hits.find((p) => p.facts.creds!.user)?.facts.creds!.user
@@ -126,15 +162,17 @@ function detectCleartextCreds(packets: PacketSummary[]): Anomaly | null {
     kind: 'cleartext-creds',
     title: 'Credentials sent in cleartext',
     detail: `${protos.join('/')} sent a login${user ? ` for "${user}"` : ''} without encryption — anyone on the path can read it.`,
-    packets: hits.map((p) => p.no).slice(0, 20),
+    packets: hits.map((p) => p.no),
     severity: 'high',
     evidence: { protocols: protos.join(', '), user: user ?? 'unknown', packets: hits.length },
   }
 }
 
-function baseDomain(name: string): string {
-  const parts = name.split('.')
-  return parts.slice(-2).join('.')
+/** Registrable domain: the last two labels, or three under a two-letter country code's second level (co.uk). */
+export function baseDomain(name: string): string {
+  const parts = name.replace(/\.$/, '').split('.')
+  const n = parts.length >= 3 && parts[parts.length - 1].length === 2 && /^(co|com|net|org|gov|ac|edu|ne|or|go)$/.test(parts[parts.length - 2]) ? 3 : 2
+  return parts.slice(-n).join('.')
 }
 
 function detectDnsTunnel(packets: PacketSummary[]): Anomaly | null {
@@ -142,11 +180,12 @@ function detectDnsTunnel(packets: PacketSummary[]): Anomaly | null {
   for (const p of packets) {
     const d = p.facts.dns
     if (!d || d.isResponse || !d.qname) continue
-    const labels = d.qname.split('.')
-    const sub = labels.slice(0, -2).join('')
+    const name = d.qname.toLowerCase().replace(/\.$/, '')
+    if (name.endsWith('.arpa')) continue // reverse lookups are long and hex-looking by design
+    const k = baseDomain(name)
+    const sub = name.slice(0, name.length - k.length).replace(/\./g, '')
     if (sub.length < 20) continue
     const e = entropy(sub)
-    const k = baseDomain(d.qname)
     let s = byDomain.get(k)
     if (!s) byDomain.set(k, (s = { n: 0, txt: 0, longest: 0, ent: 0, frames: [] }))
     s.n++
@@ -162,7 +201,7 @@ function detectDnsTunnel(packets: PacketSummary[]): Anomaly | null {
         kind: 'dns-tunnel',
         title: 'Possible DNS tunneling / exfiltration',
         detail: `${s.n} queries to *.${domain} carried long, random-looking subdomains (avg entropy ${avgEnt.toFixed(1)} bits/char, longest name ${s.longest} chars); ${s.txt} asked for TXT records.`,
-        packets: s.frames.slice(0, 20),
+        packets: s.frames,
         severity: 'high',
         evidence: { domain, queries: s.n, txt: s.txt, entropy: avgEnt.toFixed(2), longest: s.longest },
       }
@@ -172,28 +211,41 @@ function detectDnsTunnel(packets: PacketSummary[]): Anomaly | null {
 }
 
 function detectFailedLogins(packets: PacketSummary[]): Anomaly | null {
-  const fails = packets.filter((p) => {
+  // Failures one server sends one client for one protocol, inside a 5-minute window. A 401 is also the normal
+  // first step of HTTP authentication (the challenge), so HTTP needs more of them.
+  const groups = new Map<string, { proto: string; frames: PacketSummary[] }>()
+  for (const p of packets) {
     const a = p.facts.app
-    if (!a || a.isRequest) return false
-    return (
-      (a.proto === 'FTP' && a.code === 530) ||
-      (a.proto === 'SMTP' && a.code === 535) ||
-      (a.proto === 'POP' && a.command === '-ERR') ||
-      (a.proto === 'IMAP' && a.command === 'NO') ||
-      (a.proto === 'Telnet' && /login incorrect/i.test(a.line))
-    )
-  })
-  const http401 = packets.filter((p) => p.facts.http?.status === 401)
-  const all = [...fails, ...http401]
-  if (all.length < 3) return null
-  const proto = fails[0]?.facts.app?.proto ?? 'HTTP'
+    const failed =
+      !!a &&
+      !a.isRequest &&
+      ((a.proto === 'FTP' && a.code === 530) ||
+        (a.proto === 'SMTP' && a.code === 535) ||
+        (a.proto === 'POP' && a.command === '-ERR') ||
+        (a.proto === 'IMAP' && a.command === 'NO') ||
+        (a.proto === 'Telnet' && /login incorrect/i.test(a.line)))
+    const proto = failed ? a!.proto : p.facts.http?.status === 401 ? 'HTTP' : null
+    if (!proto || !p.facts.ip) continue
+    const k = `${proto}|${p.facts.ip.src}>${p.facts.ip.dst}`
+    let g = groups.get(k)
+    if (!g) groups.set(k, (g = { proto, frames: [] }))
+    g.frames.push(p)
+  }
+  let best: { proto: string; frames: PacketSummary[]; peak: number } | null = null
+  for (const g of groups.values()) {
+    const peak = peakInWindow(g.frames.map((p) => p.relTime), 300)
+    if (peak >= (g.proto === 'HTTP' ? 5 : 3) && (!best || peak > best.peak)) best = { ...g, peak }
+  }
+  if (!best) return null
+  const all = best.frames
+  const [server, client] = [all[0].facts.ip!.src, all[0].facts.ip!.dst]
   return {
     kind: 'failed-logins',
     title: 'Repeated failed logins (brute force?)',
-    detail: `${all.length} authentication failures (${proto}) in ${(all[all.length - 1].relTime - all[0].relTime).toFixed(1)} s — consistent with password guessing.`,
-    packets: all.map((p) => p.no).slice(0, 20),
+    detail: `${all.length} ${best.proto} authentication failures from ${server} to ${client} in ${(all[all.length - 1].relTime - all[0].relTime).toFixed(1)} s — consistent with password guessing.`,
+    packets: all.map((p) => p.no),
     severity: 'medium',
-    evidence: { failures: all.length, protocol: proto },
+    evidence: { failures: all.length, protocol: best.proto, client, server },
   }
 }
 
@@ -210,7 +262,7 @@ function detectRstStorm(packets: PacketSummary[]): Anomaly | null {
     kind: 'rst-storm',
     title: 'Large number of TCP resets',
     detail: `${rsts.length} of ${tcp} TCP packets (${Math.round((rsts.length / tcp) * 100)}%) are RSTs — connections are being refused or torn down abnormally.`,
-    packets: rsts.slice(0, 20),
+    packets: rsts,
     severity: 'low',
     evidence: { rsts: rsts.length, tcp },
   }
@@ -226,7 +278,7 @@ function detectUnusualPorts(convs: Conversation[]): Anomaly | null {
         kind: 'unusual-port',
         title: `Connection to suspicious port ${c.b.port}`,
         detail: `${c.a.addr} opened a TCP session to ${c.b.addr}:${c.b.port} (${why}).`,
-        packets: c.packets.slice(0, 20),
+        packets: c.packets,
         severity: 'medium',
         evidence: { client: c.a.addr, server: c.b.addr, port: c.b.port, reason: why },
       }
@@ -240,7 +292,7 @@ function detectUnusualPorts(convs: Conversation[]): Anomaly | null {
         kind: 'unusual-port',
         title: `HTTP on non-standard port ${c.b.port}`,
         detail: `${c.a.addr} spoke HTTP to ${c.b.addr} on port ${c.b.port}. Services on odd ports can be shadow IT or malware C2.`,
-        packets: c.packets.slice(0, 20),
+        packets: c.packets,
         severity: 'low',
         evidence: { client: c.a.addr, server: c.b.addr, port: c.b.port, reason: 'HTTP on a non-standard port' },
       }

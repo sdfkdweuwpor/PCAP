@@ -11,7 +11,7 @@ export function XpFloat() {
       {xp > 0 && (
         <motion.div
           key={idx}
-          className="pointer-events-none absolute right-4 top-3 text-[13px] font-semibold tabular-nums text-accent glow"
+          className="pointer-events-none absolute right-5 top-3 z-10 text-[13px] font-semibold tabular-nums text-accent glow"
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: [0, 1, 1, 0], y: [6, -4, -14, -26] }}
           transition={{ duration: 1.3, times: [0, 0.15, 0.7, 1], ease: 'linear' }}

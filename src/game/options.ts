@@ -50,10 +50,10 @@ export function balanceOptions(options: string[]): string[] | null {
   return lengthRatio(out) <= MAX_LENGTH_RATIO ? out : null
 }
 
-/** True when options[0] (the correct answer) is at most 10% longer than the longest distractor. */
+/** True when the correct answer is no more than a few characters longer than the longest distractor. */
 export function correctNotLongest(options: string[], correctIndex = 0): boolean {
   const longestOther = Math.max(...options.filter((_, i) => i !== correctIndex).map((o) => o.length))
-  return options[correctIndex].length <= longestOther * 1.1
+  return options[correctIndex].length <= longestOther + 3
 }
 
 export function shuffle<T>(xs: T[], rng: () => number): T[] {
@@ -69,14 +69,18 @@ export function shuffle<T>(xs: T[], rng: () => number): T[] {
 export function makeOptions(correct: string, distractors: string[], rng: () => number): { options: string[]; correct: number } | null {
   const uniq = [...new Set(distractors.filter((d) => d !== correct))].slice(0, 3)
   if (uniq.length < 3) return null
-  let balanced = balanceOptions([correct, ...uniq])
+  const raw = [correct, ...uniq]
+  let balanced = balanceOptions(raw)
   if (!balanced) return null
-  // The correct answer must not stand out as the longest: pad distractors up to its length.
-  if (!correctNotLongest(balanced)) {
-    const target = balanced[0].length
-    balanced = [balanced[0], ...balanced.slice(1).map((d) => (d.length < target ? padTo(d, target + 4) : d))]
-    if (!correctNotLongest(balanced) || lengthRatio(balanced) > MAX_LENGTH_RATIO) return null
+  // Padding only the distractors would make the one unqualified option the answer, so the correct one gets a
+  // qualifier too — or the question is dropped.
+  if (balanced[0] === raw[0] && balanced.some((o, i) => o !== raw[i])) {
+    const longest = Math.max(...balanced.map((o) => o.length))
+    balanced = [padTo(raw[0], longest), ...balanced.slice(1)]
+    if (balanced[0] === raw[0] || lengthRatio(balanced) > MAX_LENGTH_RATIO) return null
   }
+  // The correct answer must not stand out as the longest.
+  if (!correctNotLongest(balanced)) return null
   const order = shuffle([0, 1, 2, 3], rng)
   return { options: order.map((i) => balanced[i]), correct: order.indexOf(0) }
 }

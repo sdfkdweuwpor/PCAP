@@ -25,5 +25,16 @@ It must **not** look like generic AI-generated UI ("AI slop").
 
 ## Themes
 
-`data-theme` on `<html>`: `amber` (default phosphor), `green` (phosphor), `paper` (light line-printer). `data-crt="on"`
+`data-screen` on `<html>`: `amber` (default phosphor), `green` (phosphor), `paper` (light line-printer). `data-crt="on"`
 adds static scanlines on the phosphor screens. Test every change in all three.
+
+Contrast floors (checked with WCAG relative luminance): `text-faint` is at least 4.5:1 on `bg`/`panel`/`panel2` and 4:1 on
+`panel3`; `border-line-strong` (input borders) is at least 3:1 on `panel`; on paper, `--p-*` protocol colours are at least
+4.5:1 on their 15% row tint and `--accent` is at least 4.5:1 on `bg`. Re-check these when editing tokens in `src/index.css`.
+
+## Keyboard shortcuts
+
+Single-key shortcuts (`o`, `1`-`8`, `n`, `/` and similar) must go through `hotkeyAllowed(e)` (or `consoleHotkeyAllowed(e)`
+for shortcuts owned by the game console) in `src/ui/hotkeys.ts`. It honours the "single-key shortcuts" setting, ignores
+modified keys and typing targets, and stands down while a modal dialog is open. Never add a bare `window` keydown
+listener that reacts to a plain key without it.

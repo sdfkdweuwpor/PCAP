@@ -140,7 +140,7 @@ export function grade(q: Question, a: Answer, layers?: Field[], index?: CaptureI
         const got = new Set(a.packets)
         const hits = [...got].filter((x) => want.has(x)).length
         if (hits === want.size && got.size === want.size) return { score: 1, feedback: 'Exactly right.' }
-        if (hits >= Math.ceil(want.size / 2) && got.size <= want.size + 1)
+        if (hits >= Math.ceil(want.size / 2) && got.size - hits <= 1)
           return { score: 0.5, feedback: `You found ${hits} of ${want.size} and picked ${got.size - hits} extra.` }
         return { score: 0, feedback: `You found ${hits} of ${want.size}.` }
       }
