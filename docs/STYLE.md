@@ -25,7 +25,7 @@ It must **not** look like generic AI-generated UI ("AI slop").
 
 ## Themes
 
-`data-screen` on `<html>`: `dark` (default, amber phosphor) or `paper` (light line-printer). `data-crt="on"`
+`data-screen` on `<html>`: `paper` (default, light line-printer) or `dark` (amber phosphor). `data-crt="on"`
 adds static scanlines on the phosphor screens. Test every change in all three.
 
 Contrast floors (checked with WCAG relative luminance): `text-faint` is at least 4.5:1 on `bg`/`panel`/`panel2` and 4:1 on

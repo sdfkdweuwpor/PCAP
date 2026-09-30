@@ -1,7 +1,7 @@
 @import 'tailwindcss';
 
 /* ---------------------------------------------------------------- PacketQuest "analyst terminal" tokens
-   Two screens: dark (amber phosphor, the default) and paper (a light line-printer look). */
+   Two screens: paper (a light line-printer look, the default) and dark (amber phosphor). */
 :root,
 :root[data-screen='dark'] {
   color-scheme: dark;

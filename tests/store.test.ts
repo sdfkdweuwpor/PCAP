@@ -189,7 +189,7 @@ describe('sanitizeProgress', () => {
     expect(p.xp).toBe(0)
     expect(p.concepts).toEqual({})
     expect(['dark', 'paper']).toContain(p.settings.theme)
-    expect(p.settings.theme).toBe('dark')
+    expect(p.settings.theme).toBe('paper')
     for (const k of ['crt', 'unlockAll', 'showTimer', 'hotkeys', 'aiExplain'] as const) expect(typeof p.settings[k], k).toBe('boolean')
     expect(p).toEqual(DEFAULT_PROGRESS)
   })
@@ -204,8 +204,8 @@ describe('sanitizeProgress', () => {
     expect(sanitizeProgress({ settings: { theme: 'light' } }).settings.theme).toBe('paper')
     expect(sanitizeProgress({ settings: { theme: 'dark' } }).settings.theme).toBe('dark')
     expect(sanitizeProgress({ settings: { theme: 'paper' } }).settings.theme).toBe('paper')
-    expect(sanitizeProgress({ settings: { theme: 'DARK' } }).settings.theme).toBe('dark') // not a known spelling: default
-    expect(sanitizeProgress({ settings: { theme: 3 } }).settings.theme).toBe('dark')
+    expect(sanitizeProgress({ settings: { theme: 'DARK' } }).settings.theme).toBe('paper') // not a known spelling: default
+    expect(sanitizeProgress({ settings: { theme: 3 } }).settings.theme).toBe('paper')
   })
 
   it('clamps numbers and validates every section', () => {
@@ -302,7 +302,7 @@ describe('useProgress import / export', () => {
     expect(store().importJSON(JSON.stringify({ xp: 500, concepts: { evil: { seen: 9, correct: 9 }, dns: { seen: 3, correct: 2 } }, settings: { theme: 'neon', crt: 'sure' } }))).toBeNull()
     expect(store().xp).toBe(500)
     expect(store().concepts).toEqual({ dns: { seen: 3, correct: 2 } })
-    expect(store().settings.theme).toBe('dark')
+    expect(store().settings.theme).toBe('paper')
     expect(store().settings.crt).toBe(true)
   })
 

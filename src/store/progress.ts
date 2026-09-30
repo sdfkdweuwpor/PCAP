@@ -53,7 +53,7 @@ export const DEFAULT_PROGRESS: Progress = {
   concepts: {},
   sessions: [],
   drill: { bestWpm: 0, bestAccuracy: 0, runs: 0 },
-  settings: { theme: 'dark', crt: true, reduceMotion: 'system', unlockAll: false, showTimer: true, hotkeys: true, aiExplain: false },
+  settings: { theme: 'paper', crt: true, reduceMotion: 'system', unlockAll: false, showTimer: true, hotkeys: true, aiExplain: false },
 }
 
 interface ProgressStore extends Progress {
